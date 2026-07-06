@@ -1,0 +1,15 @@
+# IDF v6 moved cJSON and the PHY drivers out of the core tree into the
+# component manager. Two targets are supported: plain ESP32 + external
+# LAN8720 (lan87xx driver), and ESP32-P4 + the Function-EV-Board's onboard
+# IP101 (ip101 driver) — only the one needed for the active target is
+# pulled in.
+dependencies:
+  espressif/cjson: "^1.7"
+  espressif/lan87xx:
+    version: "^1"
+    rules:
+      - if: "target != esp32p4"
+  espressif/ip101:
+    version: "^1"
+    rules:
+      - if: "target == esp32p4"

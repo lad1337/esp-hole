@@ -1,0 +1,18 @@
+# Partition table for the DNS sinkhole (8 MB flash).
+#
+# blk_a / blk_b are the dual blocklist data slots (subtype 0x40, custom).
+# The updater always downloads into the inactive slot and only flips the
+# active-slot record in NVS after full validation, so a bad update can never
+# touch the list currently being served.
+#
+# 2.5 MB per slot holds ~325k domain hashes (8 bytes each; PSRAM realistically
+# caps usable list size around ~250k domains — see CLAUDE.md).
+# For a 4 MB flash part, shrink both slots to 0x140000 (~160k domains) and
+# set CONFIG_ESPTOOLPY_FLASHSIZE_4MB.
+#
+# Name,     Type, SubType, Offset,   Size
+nvs,        data, nvs,     0x9000,   0x6000
+phy_init,   data, phy,     0xf000,   0x1000
+factory,    app,  factory, 0x10000,  0x180000
+blk_a,      data, 0x40,    ,         0x280000
+blk_b,      data, 0x40,    ,         0x280000

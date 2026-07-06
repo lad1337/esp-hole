@@ -1,0 +1,16 @@
+# ESP-IDF build artifacts
+/build/
+/build.esp32p4/
+/sdkconfig
+/sdkconfig.esp32p4
+/sdkconfig.old
+/sdkconfig.esp32p4.old
+/managed_components/
+
+# Machine-specific EIM install manifest (absolute local paths) — see README
+# for how to install ESP-IDF v6.x yourself.
+/eim_config.toml
+
+# Go build artifacts
+/generator/generator
+/generator/data/

@@ -1,0 +1,18 @@
+CONFIG_IDF_TARGET="esp32"
+
+# 8 MB flash to fit dual 2.5 MB blocklist slots (see partitions.csv for the
+# 4 MB variant).
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# The blocklist lives in PSRAM (heap_caps_malloc MALLOC_CAP_SPIRAM).
+CONFIG_SPIRAM=y
+
+# Panic (and therefore reboot) rather than hang if anything faults — this is
+# network-critical infrastructure and a reboot is the fail-safe.
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+
+# HTTPS for manifest/blocklist downloads uses the built-in CA bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
