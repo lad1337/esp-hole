@@ -1,0 +1,17 @@
+# Partition table for the ESP32-P4-Function-EV-Board (16 MB flash).
+#
+# Same layout idea as partitions.csv (see there for the slot-swap scheme):
+# blk_a / blk_b are the dual blocklist data slots (subtype 0x40, custom).
+#
+# 6 MB per slot holds ~786k domain hashes (8 bytes each) — the P4's 32 MB
+# PSRAM makes flash, not RAM, the binding limit, so the slots get most of
+# the extra flash. The tail ~2.4 MB is deliberately left unallocated so
+# dual OTA app partitions (otadata + a second 0x180000 app slot) can be
+# added later without moving blk_a/blk_b, which would wipe stored lists.
+#
+# Name,     Type, SubType, Offset,   Size
+nvs,        data, nvs,     0x9000,   0x6000
+phy_init,   data, phy,     0xf000,   0x1000
+factory,    app,  factory, 0x10000,  0x180000
+blk_a,      data, 0x40,    ,         0x600000
+blk_b,      data, 0x40,    ,         0x600000

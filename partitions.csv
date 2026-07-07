@@ -8,7 +8,8 @@
 # 2.5 MB per slot holds ~325k domain hashes (8 bytes each; PSRAM realistically
 # caps usable list size around ~250k domains — see CLAUDE.md).
 # For a 4 MB flash part, shrink both slots to 0x140000 (~160k domains) and
-# set CONFIG_ESPTOOLPY_FLASHSIZE_4MB.
+# set CONFIG_ESPTOOLPY_FLASHSIZE_4MB. The ESP32-P4 build uses its own table
+# (partitions.esp32p4.csv) sized for that board's 16 MB flash.
 #
 # Name,     Type, SubType, Offset,   Size
 nvs,        data, nvs,     0x9000,   0x6000

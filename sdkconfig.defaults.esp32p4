@@ -8,6 +8,8 @@ CONFIG_IDF_TARGET="esp32p4"
 # 200 MHz is the speed used by Espressif's own P4 examples.
 CONFIG_SPIRAM_SPEED_200M=y
 
-# The board ships 16 MB flash; sdkconfig.defaults' 8 MB partition table
-# (partitions.csv) fits within that with room to spare. Grow blk_a/blk_b in
-# partitions.csv if you want to use the rest.
+# The board ships 16 MB flash; use it. partitions.esp32p4.csv grows the
+# blocklist slots to 2x 6 MB (~786k domains each) and leaves the tail free
+# for dual OTA app partitions later.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.esp32p4.csv"
