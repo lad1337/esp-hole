@@ -11,6 +11,13 @@
 # for how to install ESP-IDF v6.x yourself.
 /eim_config.toml
 
+# Machine-specific sdkconfig overrides (e.g. your LAN IP for the manifest
+# URL) layered on top of sdkconfig.defaults.esp32p4 — see Makefile.
+/sdkconfig.local.esp32p4
+
 # Go build artifacts
 /generator/generator
 /generator/data/
+
+# Personal/local generator config (machine-specific IP, not for commit)
+/generator/config.json

@@ -21,8 +21,18 @@ SDKCONFIG_ESP32P4 := sdkconfig.esp32p4
 
 IDF_PY := $(IDF_PYTHON_ENV_PATH)/bin/python $(IDF_PATH)/tools/idf.py
 
+# sdkconfig.local.esp32p4, if present, is an untracked (gitignored) extra
+# defaults layer merged in on top of sdkconfig.defaults.esp32p4 — for
+# machine-specific overrides (e.g. CONFIG_SINKHOLE_MANIFEST_URL pointed at
+# your LAN IP) that must survive `set-target`/fullclean regenerating
+# sdkconfig.esp32p4, but shouldn't be committed. Listing SDKCONFIG_DEFAULTS
+# explicitly like this replaces idf.py's auto-detected defaults chain, so
+# both real defaults files are named here even when the local one is absent.
+SDKCONFIG_LOCAL_ESP32P4 := $(wildcard sdkconfig.local.esp32p4)
+SDKCONFIG_DEFAULTS_ESP32P4 := sdkconfig.defaults;sdkconfig.defaults.esp32p4$(if $(SDKCONFIG_LOCAL_ESP32P4),;sdkconfig.local.esp32p4,)
+
 IDF32   := $(IDF_PY) -B $(BUILD_DIR_ESP32)   -D SDKCONFIG=$(SDKCONFIG_ESP32)
-IDF32P4 := $(IDF_PY) -B $(BUILD_DIR_ESP32P4) -D SDKCONFIG=$(SDKCONFIG_ESP32P4)
+IDF32P4 := $(IDF_PY) -B $(BUILD_DIR_ESP32P4) -D SDKCONFIG=$(SDKCONFIG_ESP32P4) -D SDKCONFIG_DEFAULTS="$(SDKCONFIG_DEFAULTS_ESP32P4)"
 
 ifdef PORT
 PORT_ARG := -p $(PORT)
