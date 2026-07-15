@@ -13,4 +13,5 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifi
 COPY --from=builder /out/generator /generator
 VOLUME /data
 EXPOSE 8080
+EXPOSE 8094/udp
 ENTRYPOINT ["/generator", "-config", "/config.json"]

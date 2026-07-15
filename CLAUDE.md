@@ -116,8 +116,12 @@ matching semantics.
 
 ## What NOT to do
 
-- Do not add query logging, stats, a web UI, DoH/DoT, per-client rules, or
-  caching unless explicitly asked. The owner chose reliability over features.
+- Do not add query logging, DoH/DoT, per-client rules, or caching unless
+  explicitly asked. The owner chose reliability over features. (The one
+  sanctioned exception: the best-effort UDP stats reporting in `main/stats.c`
+  + the generator's in-RAM `/stats` UI, added at the owner's request. It must
+  stay fire-and-forget — never let it grow into something the serve path
+  depends on.)
 - Do not parse public blocklists on the ESP. That belongs in the offline build
   step.
 - Do not introduce dynamic allocation into the query path.

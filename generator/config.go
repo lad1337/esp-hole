@@ -26,6 +26,13 @@ type Config struct {
 	// DataDir, if set, persists the last good blob + manifest so a restart
 	// serves the previous list before the first regeneration completes.
 	DataDir string `json:"data_dir"`
+	// StatsListen is the UDP listen address for node stats (":8094").
+	// The explicit sentinel "off" disables stats collection and the /stats
+	// UI — an absent field means default-on, matching the firmware default.
+	StatsListen string `json:"stats_listen"`
+	// StatsRetention is how long node stats are kept in RAM ("168h").
+	// Stats are never persisted; a restart starts empty by design.
+	StatsRetention jsonDuration `json:"stats_retention"`
 }
 
 type jsonDuration time.Duration
@@ -49,9 +56,11 @@ func loadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		MinDomains: 10000,
-		Refresh:    jsonDuration(6 * time.Hour),
-		Listen:     ":8080",
+		MinDomains:     10000,
+		Refresh:        jsonDuration(6 * time.Hour),
+		Listen:         ":8080",
+		StatsListen:    ":8094",
+		StatsRetention: jsonDuration(168 * time.Hour),
 	}
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -64,6 +73,9 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if cfg.MinDomains < 1 {
 		return nil, fmt.Errorf("%s: min_domains must be positive", path)
+	}
+	if cfg.StatsListen != "off" && time.Duration(cfg.StatsRetention) < time.Hour {
+		return nil, fmt.Errorf("%s: stats_retention must be at least 1h", path)
 	}
 	return cfg, nil
 }

@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP-Hole stats</title>
+<link rel="stylesheet" href="/stats/ui/uplot.min.css">
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    /* categorical: node identity, fixed slot order (validated) */
+    --cat: #2a78d6 #1baf7a #eda100 #008300 #4a3aa7 #e34948 #e87ba4 #eb6834;
+    /* ordinal blue ramp: p50 → p95 → p99 (validated) */
+    --ord: #86b6ef #2a78d6 #104281;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --cat: #3987e5 #199e70 #c98500 #008300 #9085e9 #e66767 #d55181 #d95926;
+      --ord: #9ec5f4 #3987e5 #184f95;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .ranges { display: flex; gap: 4px; margin-left: auto; }
+  .ranges button {
+    font: inherit; color: var(--text-secondary); background: none;
+    border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
+  .ranges button:hover { background: var(--surface-1); }
+  .ranges button[aria-pressed="true"] {
+    color: var(--text-primary); background: var(--surface-1);
+    border-color: var(--border); font-weight: 600;
+  }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .tile .label { color: var(--text-secondary); font-size: 12px; }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 14px 6px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 8px; }
+  .card.loading { opacity: 0.55; }
+  .u-legend { font-size: 12px; color: var(--text-secondary) !important; }
+  .u-legend .u-value { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--grid); }
+  tr:last-child td { border-bottom: none; }
+  td .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: baseline; }
+  .empty { color: var(--text-muted); padding: 24px 0; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>ESP-Hole stats</h1>
+    <div class="ranges" id="ranges" role="group" aria-label="Time range">
+      <button data-range="1h">1h</button>
+      <button data-range="6h">6h</button>
+      <button data-range="24h">24h</button>
+      <button data-range="168h">7d</button>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="label">Queries</div><div class="value" id="t-queries">–</div></div>
+    <div class="tile"><div class="label">Blocked</div><div class="value" id="t-blocked">–</div></div>
+    <div class="tile"><div class="label">Upstream timeouts</div><div class="value" id="t-timeouts">–</div></div>
+    <div class="tile"><div class="label">Nodes</div><div class="value" id="t-nodes">–</div></div>
+  </div>
+
+  <div class="card" id="card-qps"><h2>Queries per second</h2><div class="plot"></div></div>
+  <div class="card" id="card-ratio"><h2>Blocked share of queries</h2><div class="plot"></div></div>
+  <div id="latency-cards"></div>
+
+  <div class="card" id="card-table">
+    <h2>Nodes</h2>
+    <div id="node-table"><div class="empty">Waiting for node reports…</div></div>
+  </div>
+</main>
+
+<script src="/stats/ui/uplot.min.js"></script>
+<script>
+"use strict";
+
+const cssList = name => getComputedStyle(document.documentElement)
+  .getPropertyValue(name).trim().split(/\s+/);
+let CAT = [], ORD = [], INK = {};
+function readTheme() {
+  const s = getComputedStyle(document.documentElement);
+  CAT = cssList("--cat");
+  ORD = cssList("--ord");
+  INK = {
+    grid: s.getPropertyValue("--grid").trim(),
+    axis: s.getPropertyValue("--axis").trim(),
+    muted: s.getPropertyValue("--text-muted").trim(),
+  };
+}
+readTheme();
+
+// Color follows the node, not its rank in the current range: slots are
+// assigned once per node id (sorted on first sight) and kept for the session.
+const slotByNode = new Map();
+function nodeColor(id) {
+  if (!slotByNode.has(id)) slotByNode.set(id, slotByNode.size);
+  const slot = slotByNode.get(id);
+  return slot < CAT.length ? CAT[slot] : INK.muted; // >8 nodes: muted extras
+}
+
+// Range comes from ?range=… when present (also values without a button,
+// e.g. 15m); the buttons update it in place.
+let range = new URLSearchParams(location.search).get("range") || "24h";
+let plots = [];   // live uPlot instances, destroyed on each render
+let lastData = null;
+
+const fmtCount = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
+  : n >= 1e4 ? (n / 1e3).toFixed(1) + "K" : n.toLocaleString();
+const fmtMs = v => v == null ? "–" : (v / 1000).toFixed(1) + " ms";
+const fmtPct = v => v == null ? "–" : (v * 100).toFixed(1) + "%";
+const fmtAgo = secs => secs < 90 ? "just now"
+  : secs < 5400 ? Math.round(secs / 60) + " min ago"
+  : secs < 129600 ? Math.round(secs / 3600) + " h ago"
+  : Math.round(secs / 86400) + " d ago";
+const fmtUptime = s => s < 3600 ? Math.floor(s / 60) + " min"
+  : s < 172800 ? (s / 3600).toFixed(1) + " h"
+  : (s / 86400).toFixed(1) + " d";
+
+function axes(valueFmt) {
+  return [
+    { stroke: INK.muted, grid: { stroke: INK.grid, width: 1 }, ticks: { stroke: INK.axis, width: 1 } },
+    { stroke: INK.muted, grid: { stroke: INK.grid, width: 1 }, ticks: { stroke: INK.axis, width: 1 },
+      size: 56, values: (u, vals) => vals.map(valueFmt) },
+  ];
+}
+
+function makePlot(mount, title, series, data, yFmt, yRange) {
+  const opts = {
+    width: mount.clientWidth, height: 220,
+    cursor: { points: { size: 8, fill: s => s.stroke, stroke: "var(--surface-1)", width: 2 } },
+    scales: { y: yRange ? { range: yRange } : {} },
+    axes: axes(yFmt),
+    series: [
+      { label: "Time", value: (u, t) => t == null ? "–" : new Date(t * 1000).toLocaleString() },
+      ...series,
+    ],
+  };
+  const u = new uPlot(opts, data, mount);
+  plots.push(u);
+  return u;
+}
+
+function render(resp) {
+  plots.forEach(p => p.destroy());
+  plots = [];
+
+  // Stable slot assignment: sorted ids, so every render agrees.
+  resp.nodes.map(n => n.id).sort().forEach(nodeColor);
+
+  // --- tiles ---------------------------------------------------------------
+  let q = 0, b = 0, to = 0;
+  for (const n of resp.nodes) { q += n.blocked + n.forwarded; b += n.blocked; to += n.timeouts; }
+  document.getElementById("t-queries").textContent = fmtCount(q);
+  document.getElementById("t-blocked").textContent = q ? (100 * b / q).toFixed(1) + "%" : "–";
+  document.getElementById("t-timeouts").textContent = fmtCount(to);
+  document.getElementById("t-nodes").textContent = resp.nodes.length || "–";
+
+  // --- per-node multi-series charts (qps, blocked ratio) --------------------
+  const mkNodeChart = (cardId, key, yFmt, yRange) => {
+    const mount = document.querySelector(`#${cardId} .plot`);
+    mount.textContent = "";
+    if (!resp.nodes.length) { mount.innerHTML = '<div class="empty">No data yet</div>'; return; }
+    const series = resp.nodes.map(n => ({
+      label: n.id, stroke: nodeColor(n.id), width: 2,
+      value: (u, v) => yFmt(v),
+    }));
+    const data = [resp.times, ...resp.nodes.map(n => resp.series[n.id][key])];
+    makePlot(mount, cardId, series, data, yFmt, yRange);
+  };
+  mkNodeChart("card-qps", "qps", v => v == null ? "–" : Number(v).toFixed(2));
+  mkNodeChart("card-ratio", "blockedRatio", fmtPct, () => [0, 1]);
+
+  // --- per-node latency charts ----------------------------------------------
+  const latHost = document.getElementById("latency-cards");
+  latHost.textContent = "";
+  for (const n of resp.nodes) {
+    const card = document.createElement("div");
+    card.className = "card";
+    const h = document.createElement("h2");
+    h.textContent = `Upstream latency — node ${n.id}`;
+    const mount = document.createElement("div");
+    card.append(h, mount);
+    latHost.append(card);
+    const s = resp.series[n.id];
+    makePlot(mount, "latency", [
+      { label: "p50", stroke: ORD[0], width: 2, value: (u, v) => fmtMs(v) },
+      { label: "p95", stroke: ORD[1], width: 2, value: (u, v) => fmtMs(v) },
+      { label: "p99", stroke: ORD[2], width: 2, value: (u, v) => fmtMs(v) },
+      { label: "avg", stroke: INK.muted, width: 2, value: (u, v) => fmtMs(v) },
+    ], [resp.times, s.p50Us, s.p95Us, s.p99Us, s.avgUs], v => v == null ? "" : (v / 1000).toFixed(0) + "ms");
+  }
+
+  // --- node table ------------------------------------------------------------
+  const host = document.getElementById("node-table");
+  host.textContent = "";
+  if (!resp.nodes.length) {
+    host.innerHTML = '<div class="empty">Waiting for node reports…</div>';
+    return;
+  }
+  const table = document.createElement("table");
+  table.innerHTML = "<thead><tr><th>Node</th><th>Last seen</th><th>Uptime</th>" +
+    "<th>Queries</th><th>Blocked</th><th>Timeouts</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  const nowS = Date.now() / 1000;
+  for (const n of resp.nodes) {
+    const tr = document.createElement("tr");
+    const cells = [
+      null, // node id cell built below (colored key + text)
+      fmtAgo(nowS - n.lastSeen),
+      fmtUptime(n.uptimeS),
+      fmtCount(n.blocked + n.forwarded),
+      (n.blocked + n.forwarded) ? (100 * n.blocked / (n.blocked + n.forwarded)).toFixed(1) + "%" : "–",
+      fmtCount(n.timeouts),
+    ];
+    const idCell = document.createElement("td");
+    const key = document.createElement("span");
+    key.className = "key";
+    key.style.background = nodeColor(n.id);
+    idCell.append(key, document.createTextNode(n.id));
+    tr.append(idCell);
+    for (const c of cells.slice(1)) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+  table.append(tbody);
+  host.append(table);
+}
+
+async function refresh() {
+  document.querySelectorAll(".card").forEach(c => c.classList.add("loading"));
+  try {
+    const r = await fetch(`/stats/api?range=${range}`);
+    if (!r.ok) throw new Error(await r.text());
+    lastData = await r.json();
+    render(lastData);
+  } catch (e) {
+    console.error("stats refresh failed:", e);
+  } finally {
+    document.querySelectorAll(".card").forEach(c => c.classList.remove("loading"));
+  }
+}
+
+function markRangeButtons() {
+  document.querySelectorAll("#ranges button").forEach(b =>
+    b.setAttribute("aria-pressed", b.dataset.range === range ? "true" : "false"));
+}
+markRangeButtons();
+
+document.getElementById("ranges").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-range]");
+  if (!btn) return;
+  range = btn.dataset.range;
+  markRangeButtons();
+  history.replaceState(null, "", `?range=${range}`);
+  refresh();
+});
+
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    for (const u of plots) u.setSize({ width: u.root.parentElement.clientWidth, height: 220 });
+  }, 150);
+});
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  readTheme();
+  slotByNode.clear();
+  if (lastData) render(lastData);
+});
+
+refresh();
+setInterval(refresh, 60_000);
+</script>
+</body>
+</html>

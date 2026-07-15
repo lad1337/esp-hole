@@ -6,6 +6,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,9 @@ type server struct {
 	// current holds *published; nil-able via atomic.Pointer for lock-free
 	// reads from handlers.
 	current atomic.Pointer[published]
+	// stats is nil when stats collection is disabled or the UDP bind failed;
+	// the /stats routes answer 503 in that case.
+	stats *statsStore
 }
 
 type published struct {
@@ -85,6 +89,7 @@ func (s *server) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Write(cur.art.Blob)
 	})
+	s.statsRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if s.current.Load() == nil {
 			http.Error(w, "no artifact", http.StatusServiceUnavailable)
@@ -105,6 +110,21 @@ func (s *server) run() error {
 		}
 	}
 	s.refresh()
+
+	// Node stats are strictly optional: a bind failure must never take down
+	// blocklist serving, so warn and continue rather than erroring out.
+	if s.cfg.StatsListen != "off" {
+		pc, err := net.ListenPacket("udp", s.cfg.StatsListen)
+		if err != nil {
+			log.Printf("WARNING: stats listener on %s failed: %v (stats disabled)",
+				s.cfg.StatsListen, err)
+		} else {
+			s.stats = newStatsStore(time.Duration(s.cfg.StatsRetention))
+			startStatsListener(pc, s.stats)
+			log.Printf("stats: listening on udp %s, retention %s",
+				s.cfg.StatsListen, time.Duration(s.cfg.StatsRetention))
+		}
+	}
 
 	go func() {
 		ticker := time.NewTicker(time.Duration(s.cfg.Refresh))

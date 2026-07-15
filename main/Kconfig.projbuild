@@ -37,4 +37,47 @@ menu "DNS sinkhole"
             needed on the ESP32-P4-Function-EV-Board (onboard IP101 doesn't
             gate power this way).
 
+    comment "List updates"
+
+    config SINKHOLE_MANIFEST_URL
+        string "Blocklist manifest URL"
+        default "http://esphole.local:8080/manifest.json"
+        help
+            Where the generator serves manifest.json. The blocklist blob
+            itself is fetched from the manifest's "url" field, so this is
+            the only address the updater needs.
+
+    comment "Monitoring (UDP stats reports to the generator)"
+
+    config SINKHOLE_STATS_ENABLE
+        bool "Report query stats to a monitoring server"
+        default y
+        help
+            Best-effort monitoring: a low-priority task sends one UDP
+            datagram (InfluxDB line protocol) every interval with query
+            counts and latency histogram deltas. Send failures are dropped
+            silently — this can never affect DNS serving. Disable to compile
+            the stats module out entirely.
+
+    config SINKHOLE_STATS_HOST
+        string "Stats server host"
+        depends on SINKHOLE_STATS_ENABLE
+        default "esphole.local"
+        help
+            Hostname or IPv4 literal of the generator server (its
+            stats_listen UDP port). An IP literal avoids depending on LAN
+            DNS to resolve .local names.
+
+    config SINKHOLE_STATS_PORT
+        int "Stats server UDP port"
+        depends on SINKHOLE_STATS_ENABLE
+        range 1 65535
+        default 8094
+
+    config SINKHOLE_STATS_INTERVAL_S
+        int "Stats send interval (seconds)"
+        depends on SINKHOLE_STATS_ENABLE
+        range 1 3600
+        default 10
+
 endmenu

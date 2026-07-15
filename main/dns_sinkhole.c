@@ -27,10 +27,12 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "lwip/sockets.h"
 #include "nvs_flash.h"
 
 #include "blocklist.h"
+#include "stats.h"
 #include "updater.h"
 
 /* ---- configuration ------------------------------------------------------ */
@@ -257,15 +259,20 @@ static void dns_task(void *arg)
         }
 
         if (is_blocked(s_name)) {
+            stats_count_blocked();
             const int rlen = make_nxdomain(s_pkt, q_end);
             sendto(sock, s_pkt, rlen, 0, (struct sockaddr *)&client, client_len);
         } else {
+            const int64_t t0 = esp_timer_get_time();
             const int alen = forward_upstream(usock, s_pkt, n, s_ans, sizeof(s_ans));
             if (alen > 0) {
+                stats_count_forwarded((uint32_t)(esp_timer_get_time() - t0));
                 sendto(sock, s_ans, alen, 0, (struct sockaddr *)&client,
                        client_len);
+            } else {
+                /* upstream slow/dead — drop silently, client retries */
+                stats_count_timeout();
             }
-            /* alen < 0: upstream slow/dead — drop silently, client retries */
         }
     }
 }
@@ -361,4 +368,5 @@ void app_main(void)
         xTaskCreate(dns_task, "dns", 6144, NULL, 5, NULL);
     configASSERT(ok == pdPASS);
     updater_start();
+    stats_start();
 }

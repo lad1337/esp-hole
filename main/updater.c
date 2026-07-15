@@ -21,7 +21,7 @@
 #include "blocklist.h"
 
 /* ---- configuration ------------------------------------------------------ */
-#define MANIFEST_URL         "http://esphole.local:8080/manifest.json" /* EDIT ME */
+#define MANIFEST_URL         CONFIG_SINKHOLE_MANIFEST_URL /* set via menuconfig */
 #define MANIFEST_FORMAT      2      /* 2 = uint64 LE FNV-1a; bump with the hash */
 #define UPDATE_POLL_S        3600   /* how often to check the manifest */
 #define UPDATE_FIRST_DELAY_S 15     /* first check shortly after boot */
