@@ -17,11 +17,7 @@
 #include "driver/gpio.h"
 #include "esp_eth.h"
 #include "esp_eth_netif_glue.h"
-#if CONFIG_IDF_TARGET_ESP32P4
 #include "esp_eth_phy_ip101.h" /* onboard PHY on the ESP32-P4-Function-EV-Board */
-#else
-#include "esp_eth_phy_lan87xx.h" /* external LAN8720 */
-#endif
 #include "esp_event.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
@@ -56,6 +52,7 @@ static char s_name[DNS_MAX_NAME];
 
 static EventGroupHandle_t s_net_events;
 #define GOT_IP_BIT BIT0
+static char s_node_ip[16];           /* dotted-quad, filled in on_got_ip() */
 
 /* 64-bit FNV-1a. Must stay byte-identical to fnv1a64() in the offline
  * generator (generator/hash.go) — if you change one, change both and bump
@@ -281,6 +278,7 @@ static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     const ip_event_got_ip_t *event = data;
     ESP_LOGI(TAG, "got IP " IPSTR, IP2STR(&event->ip_info.ip));
+    snprintf(s_node_ip, sizeof(s_node_ip), IPSTR, IP2STR(&event->ip_info.ip));
     xEventGroupSetBits(s_net_events, GOT_IP_BIT);
 }
 
@@ -316,11 +314,7 @@ static void eth_start(void)
     eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
     phy_config.phy_addr = CONFIG_SINKHOLE_ETH_PHY_ADDR;
     phy_config.reset_gpio_num = CONFIG_SINKHOLE_ETH_PHY_RST_GPIO;
-#if CONFIG_IDF_TARGET_ESP32P4
     esp_eth_phy_t *phy = esp_eth_phy_new_ip101(&phy_config);
-#else
-    esp_eth_phy_t *phy = esp_eth_phy_new_lan87xx(&phy_config);
-#endif
 
     esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
     esp_eth_handle_t eth_handle = NULL;
@@ -368,5 +362,5 @@ void app_main(void)
         xTaskCreate(dns_task, "dns", 6144, NULL, 5, NULL);
     configASSERT(ok == pdPASS);
     updater_start();
-    stats_start();
+    stats_start(s_node_ip);
 }

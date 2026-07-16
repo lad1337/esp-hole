@@ -1,0 +1,89 @@
+menu "Generator node"
+
+    comment "RMII wiring — defaults match the ESP32-P4-Function-EV-Board's onboard IP101"
+
+    config GENERATOR_ETH_MDC_GPIO
+        int "RMII MDC GPIO"
+        range 0 56
+        default 31
+
+    config GENERATOR_ETH_MDIO_GPIO
+        int "RMII MDIO GPIO"
+        range 0 56
+        default 52
+
+    config GENERATOR_ETH_PHY_ADDR
+        int "PHY address"
+        range 0 31
+        default 1
+
+    config GENERATOR_ETH_PHY_RST_GPIO
+        int "PHY reset GPIO (-1 if not wired)"
+        range -1 56
+        default 51
+
+    config GENERATOR_ETH_PHY_POWER_GPIO
+        int "PHY power / oscillator-enable GPIO (-1 if not wired)"
+        range -1 56
+        default -1
+        help
+            Some boards gate the PHY's power or 50 MHz oscillator behind a
+            GPIO. Set it here so it is driven high before the Ethernet driver
+            probes the PHY. Not needed on the ESP32-P4-Function-EV-Board
+            (onboard IP101 doesn't gate power this way).
+
+    comment "Blocklist sources"
+
+    config GENERATOR_SOURCE_URL_1
+        string "Source URL 1"
+        default "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+
+    config GENERATOR_SOURCE_URL_2
+        string "Source URL 2 (empty to disable)"
+        default "https://big.oisd.nl/domainswild"
+
+    config GENERATOR_SOURCE_URL_3
+        string "Source URL 3 (empty to disable)"
+        default "https://raw.githubusercontent.com/AdguardTeam/AdguardSDNSFilter/master/Filters/filter.txt"
+        help
+            Three fixed slots rather than an editable list — Kconfig doesn't
+            do arrays cleanly, and this set is human-curated and slow-
+            changing, same reasoning as CONFIG_SINKHOLE_MANIFEST_URL being a
+            single build-time string in the sinkhole firmware. A dead source
+            (wrong URL, empty slot, HTTP error) is skipped, not fatal — see
+            fetch.c.
+
+    config GENERATOR_MIN_DOMAINS
+        int "Minimum domains (refuse-to-publish floor)"
+        default 10000
+        help
+            Must match BLOCKLIST_MIN_DOMAINS in main/blocklist.h — the
+            DNS-sinkhole firmware enforces the same floor before accepting
+            a downloaded list.
+
+    config GENERATOR_REFRESH_INTERVAL_S
+        int "Refresh interval (seconds)"
+        default 21600
+        help
+            How often to re-fetch all sources and regenerate. Default 6h,
+            matching generator/config.example.json.
+
+    comment "HTTP serving"
+
+    config GENERATOR_HTTP_PORT
+        int "HTTP port"
+        range 1 65535
+        default 80
+
+    config GENERATOR_PUBLIC_URL_BASE
+        string "Public URL base (empty = use this node's own detected IP)"
+        default ""
+        help
+            The address DNS-sinkhole nodes reach this node at — goes into
+            the manifest's "url" field. Leave empty to use
+            http://<this node's DHCP IP>:<GENERATOR_HTTP_PORT>, which is
+            correct as long as the node's IP is stable (static/DHCP
+            reservation). Set explicitly if this node is reachable at a
+            different address (DNS name, NAT, etc).
+
+endmenu

@@ -1,0 +1,26 @@
+# Generator-node firmware: ESP32-P4-Function-EV-Board, onboard IP101 RMII
+# PHY (see main/idf_component.yml + Kconfig.projbuild defaults), 32 MB PSRAM,
+# 32 MB flash. Separate ESP-IDF project from the sinkhole firmware (../) —
+# see CLAUDE.md's "Firmware roles" section for why.
+CONFIG_IDF_TARGET="esp32p4"
+
+# Same pre-mass-production-silicon workaround as the sinkhole build (rev
+# v1.3 board; IDF's default REV_MIN is v3.1). Drop back to the IDF default if
+# this ever runs on rev3+ silicon.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Panic (and therefore reboot) rather than hang if anything faults.
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+
+# HTTPS fetch from public blocklist sources (GitHub-raw, oisd.nl, …) needs the
+# full CA bundle — more host diversity than the sinkhole's single manifest
+# host, so keep the default (full) bundle rather than trimming it.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y

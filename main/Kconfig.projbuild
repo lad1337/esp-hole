@@ -1,19 +1,16 @@
 menu "DNS sinkhole"
 
-    comment "RMII wiring — set these to match your board"
-    comment "(defaults are LAN8720 on plain ESP32 / onboard IP101 on the ESP32-P4-Function-EV-Board)"
+    comment "RMII wiring — defaults match the ESP32-P4-Function-EV-Board's onboard IP101"
 
     config SINKHOLE_ETH_MDC_GPIO
         int "RMII MDC GPIO"
         range 0 56
-        default 31 if IDF_TARGET_ESP32P4
-        default 23
+        default 31
 
     config SINKHOLE_ETH_MDIO_GPIO
         int "RMII MDIO GPIO"
         range 0 56
-        default 52 if IDF_TARGET_ESP32P4
-        default 18
+        default 52
 
     config SINKHOLE_ETH_PHY_ADDR
         int "PHY address"
@@ -23,8 +20,7 @@ menu "DNS sinkhole"
     config SINKHOLE_ETH_PHY_RST_GPIO
         int "PHY reset GPIO (-1 if not wired)"
         range -1 56
-        default 51 if IDF_TARGET_ESP32P4
-        default -1
+        default 51
 
     config SINKHOLE_ETH_PHY_POWER_GPIO
         int "PHY power / oscillator-enable GPIO (-1 if not wired)"
@@ -32,10 +28,9 @@ menu "DNS sinkhole"
         default -1
         help
             Some boards gate the PHY's power or 50 MHz oscillator behind a
-            GPIO (e.g. GPIO16 on WT32-ETH01-style wiring). Set it here so it
-            is driven high before the Ethernet driver probes the PHY. Not
-            needed on the ESP32-P4-Function-EV-Board (onboard IP101 doesn't
-            gate power this way).
+            GPIO. Set it here so it is driven high before the Ethernet driver
+            probes the PHY. Not needed on the ESP32-P4-Function-EV-Board
+            (onboard IP101 doesn't gate power this way).
 
     comment "List updates"
 

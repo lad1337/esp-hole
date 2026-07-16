@@ -1,14 +1,29 @@
-CONFIG_IDF_TARGET="esp32"
+# ESP32-P4-Function-EV-Board: onboard IP101 RMII PHY (see main/idf_component.yml
+# + Kconfig.projbuild defaults), 32 MB PSRAM over the dedicated (non-SPI)
+# memory interface, 32 MB flash.
+CONFIG_IDF_TARGET="esp32p4"
 
-# 8 MB flash to fit dual 2.5 MB blocklist slots (see partitions.csv for the
-# 4 MB variant).
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# This dev board carries pre-mass-production ESP32-P4 silicon (rev v1.3).
+# ESP-IDF's default REV_MIN is v3.1 (mass-production silicon has real
+# hardware differences from early samples per esp_hw_support's Kconfig, e.g.
+# a rev3-only MSPI workaround) so the default bootloader refuses to boot on
+# this chip. Lower the floor to match the actual hardware. If you swap in a
+# rev3+ board, this can be dropped back to the IDF default.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
 
+# P4's PSRAM interface tops out higher than the ESP32's quad SPI PSRAM;
+# 200 MHz is the speed used by Espressif's own P4 examples.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+
+# The board ships 32 MB flash (confirmed via esptool detected size, not just
+# the datasheet); use it. partitions.csv grows the blocklist slots to 2x 14 MB
+# (~1.8M domains each) and leaves the tail free for dual OTA app partitions
+# later.
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-
-# The blocklist lives in PSRAM (heap_caps_malloc MALLOC_CAP_SPIRAM).
-CONFIG_SPIRAM=y
 
 # Panic (and therefore reboot) rather than hang if anything faults — this is
 # network-critical infrastructure and a reboot is the fail-safe.

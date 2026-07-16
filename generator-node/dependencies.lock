@@ -29,6 +29,6 @@ dependencies:
 direct_dependencies:
 - espressif/cjson
 - espressif/ip101
-manifest_hash: 75b5b43b0679a9b4dda7fcd12f423afbfbbfb795ba2939dfb2652744b8864900
+manifest_hash: ac0edebe4610acb62c86620753f6580f3bd86628f7312fe1bed912ac6f32de37
 target: esp32p4
 version: 3.0.0

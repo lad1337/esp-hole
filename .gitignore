@@ -1,19 +1,23 @@
-# ESP-IDF build artifacts
+# ESP-IDF build artifacts (sinkhole firmware)
 /build/
-/build.esp32p4/
 /sdkconfig
-/sdkconfig.esp32p4
 /sdkconfig.old
-/sdkconfig.esp32p4.old
 /managed_components/
+
+# ESP-IDF build artifacts (generator-node firmware)
+/generator-node/build/
+/generator-node/sdkconfig
+/generator-node/sdkconfig.old
+/generator-node/managed_components/
 
 # Machine-specific EIM install manifest (absolute local paths) — see README
 # for how to install ESP-IDF v6.x yourself.
 /eim_config.toml
 
 # Machine-specific sdkconfig overrides (e.g. your LAN IP for the manifest
-# URL) layered on top of sdkconfig.defaults.esp32p4 — see Makefile.
-/sdkconfig.local.esp32p4
+# URL) layered on top of sdkconfig.defaults — see Makefile.
+/sdkconfig.local
+/generator-node/sdkconfig.local
 
 # Go build artifacts
 /generator/generator
@@ -21,3 +25,8 @@
 
 # Personal/local generator config (machine-specific IP, not for commit)
 /generator/config.json
+
+# blocklist_pipeline host test harness build artifacts + downloaded scale-test data
+/generator-node/components/blocklist_pipeline/test/host_test
+/generator-node/components/blocklist_pipeline/test/scale_test
+/generator-node/components/blocklist_pipeline/test/data/

@@ -12,7 +12,7 @@ that stays up.
 
 - **Reliability above all.** This is network-critical infrastructure. If it
   hangs, the LAN loses DNS. Every design choice favors robustness over features.
-- **Ethernet only** (LAN8720 / RMII). WiFi is deliberately excluded — a wired
+- **Ethernet only** (RMII). WiFi is deliberately excluded — a wired
   always-on network service is far more dependable.
 - **Redundant by default.** Run two or more identical nodes; hand out multiple
   DNS servers via DHCP so clients fail over automatically.
@@ -63,20 +63,16 @@ CPU and RAM; the ESP only ever fetches a clean, fixed-format blob.
 | `main/updater.c/.h` | Self-update task: poll `manifest.json` → download to the inactive slot → validate → atomic swap. Failures keep the current list serving. |
 | `generator/` | Go offline generator + HTTP server: public lists → `blocklist.bin` + `manifest.json`, served directly or written to disk (`-oneshot`). `go test ./...` covers hash vectors, parsing, self-test failure paths, and an end-to-end server test. |
 | `generator/Dockerfile`, `docker-compose.yml` | Build/run the generator as a scratch-based container. |
-| `partitions.csv` | 8 MB partition table with dual blocklist data slots (`blk_a`/`blk_b`). |
-| `sdkconfig.defaults.esp32p4` | Overlay applied on top of `sdkconfig.defaults` when targeting ESP32-P4 (PSRAM speed for its memory interface). |
-| `Makefile` | `make build`/`build-p4`, `flash`/`flash-p4`, `monitor`/`monitor-p4`, `menuconfig`/`menuconfig-p4` — each target uses its own build dir + sdkconfig so the two boards never clobber each other. Also wraps the Go generator/Docker commands. Run `make help` for the full list. |
+| `partitions.csv` | 32 MB partition table with dual blocklist data slots (`blk_a`/`blk_b`). |
+| `sdkconfig.defaults` | Board defaults for the ESP32-P4-Function-EV-Board (PSRAM speed, flash size, partition table). |
+| `Makefile` | `make build`/`flash`/`monitor`/`menuconfig`. Also wraps the Go generator/Docker commands. Run `make help` for the full list. |
 | `CLAUDE.md` | Constraints and context for Claude Code. Read this before making changes. |
 
 ## Hardware
 
-Two targets are supported, both RMII, no WiFi antenna needed either way:
-
-- **Plain ESP32 with PSRAM** (e.g. ESP32-WROVER) + an external **LAN8720**
-  PHY. Wire per your board and set the RMII pins in menuconfig.
-- **ESP32-P4-Function-EV-Board** — uses its onboard **IP101** PHY. Pin
-  defaults (MDC/MDIO/reset + the RMII data lines) already match this board
-  out of the box.
+**ESP32-P4-Function-EV-Board** — uses its onboard **IP101** RMII PHY. Pin
+defaults (MDC/MDIO/reset + the RMII data lines) already match this board out
+of the box; no WiFi antenna needed.
 
 ## Building
 
@@ -85,32 +81,25 @@ in your shell (`source ~/.espressif/tools/activate_idf_v6.0.2.sh` if you
 installed it via EIM, per `eim_config.toml`).
 
 ```bash
-make build       # plain ESP32 + external LAN8720 → build/, sdkconfig
-make build-p4    # ESP32-P4-Function-EV-Board       → build.esp32p4/, sdkconfig.esp32p4
-make flash       # or flash-p4 — PORT=/dev/tty... to override auto-detection
-make monitor     # or monitor-p4
-make menuconfig  # or menuconfig-p4 — "DNS sinkhole" menu: RMII pins/PHY
-                 # address, if your board differs from the target's defaults
+make build       # → build/, sdkconfig
+make flash       # PORT=/dev/tty... to override auto-detection
+make monitor
+make menuconfig  # "DNS sinkhole" menu: RMII pins/PHY address, if your board
+                 # differs from the defaults
 ```
 
 `make help` lists every target, including the Go generator/Docker wrappers.
-Each target uses its own build directory and `sdkconfig` file (see
-`Makefile`), so switching between the two boards never clobbers the other's
-configuration. Equivalent raw `idf.py` commands still work if you prefer
-them directly:
+An equivalent raw `idf.py` sequence still works if you prefer it directly:
 
 ```bash
-idf.py set-target esp32       # or: idf.py set-target esp32p4
+idf.py set-target esp32p4
 idf.py menuconfig
 idf.py build flash monitor
 ```
 
-SPIRAM, the PHY driver (LAN8720 on ESP32 / IP101 on ESP32-P4, selected
-automatically per target), and the dual-slot partition table are already set
-up by `sdkconfig.defaults` (+ `sdkconfig.defaults.esp32p4` on P4) /
-`partitions.csv` (sized for 8 MB flash — see the comment in `partitions.csv`
-for the 4 MB variant; the P4 board's 16 MB flash also fits this table with
-room to spare).
+SPIRAM, the IP101 PHY driver, and the dual-slot partition table are already
+set up by `sdkconfig.defaults` / `partitions.csv` (sized for the board's
+32 MB flash).
 
 ## Generating and publishing the blocklist
 
@@ -194,7 +183,7 @@ host" and stop, which is cleaner than pointing them at a dead IP. Change
 - [x] Offline blocklist generator + server (`generator/`, Go) → `blocklist.bin` + `manifest.json`, uint64 FNV-1a (format 2)
 - [x] On-device self-update (poll manifest → validate → atomic swap, dual slots + NVS)
 - [x] Subdomain matching (left-drop lookup)
-- [x] Firmware builds clean against ESP-IDF v6.0.2 for both ESP32 and ESP32-P4
+- [x] Firmware builds clean against ESP-IDF v6.0.2 for the ESP32-P4-Function-EV-Board
 - [ ] Firmware OTA (dual OTA partitions + rollback) — for *code* updates only
 - [ ] Verified on hardware (`idf.py build flash monitor` — builds clean in this dev container, no hardware attached)
 

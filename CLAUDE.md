@@ -7,23 +7,47 @@ Guidance for Claude Code working in this repository.
 An ESP32-based DNS sinkhole (blocklist-based ad/tracker blocking, like a minimal
 Pi-hole). It answers DNS queries on the LAN, returns NXDOMAIN for blocked
 domains, and forwards everything else to an upstream resolver. Multiple identical
-nodes run for redundancy. A separate offline build step turns public blocklists
-into the binary the nodes consume.
+nodes run for redundancy. A separate build step turns public blocklists into the
+binary those nodes consume.
 
 **The single design priority is reliability.** This device is a network-critical
 service — if it hangs, every client on the LAN loses DNS. Favor fewer moving
 parts, static allocation, and fail-safe behavior over features, cleverness, or
 performance. When in doubt, choose the more boring and more robust option.
 
+## Firmware roles
+
+This project has **two distinct roles**, with different constraints. Don't
+apply one role's rules to the other's code.
+
+- **DNS-sinkhole** (`main/`) — the redundant, LAN-facing nodes that actually
+  answer queries. This is the reliability-critical hot path. Everything in
+  "Hard constraints" below applies here, unchanged.
+- **Generator** — builds `blocklist.bin`/`manifest.json` from public
+  blocklists (fetch → parse → merge/dedupe → hash → sort → self-test). Not a
+  query-serving hot path, so it's allowed to parse untrusted text, allocate
+  dynamically, and make outbound HTTPS calls — none of that is permitted in
+  the sinkhole role. Its one non-negotiable rule, carried over from the
+  sinkhole's own philosophy: never let a bad or partial generation corrupt or
+  overwrite what it's currently publishing (self-test before publish, atomic
+  slot swap). There are two current implementations of this one role:
+  `generator/` (Go, runs on a server/Pi/NAS/CI) and `generator-node/` (C
+  firmware, runs on a dedicated ESP32-P4 node — its own ESP-IDF project, own
+  partition table, own Kconfig; not built alongside `main/`).
+
 ## Hard constraints — do not violate
 
-- **Ethernet only, no WiFi.** Two supported targets, both RMII: plain ESP32 +
-  external LAN8720 (`idf.py set-target esp32`, the default), and ESP32-P4 +
-  the Function-EV-Board's onboard IP101 (`idf.py set-target esp32p4`, pulls
-  in `sdkconfig.defaults.esp32p4`). PHY driver and EMAC pin defaults are
-  selected per-target — see `main/idf_component.yml`, `main/Kconfig.projbuild`,
-  and the `CONFIG_IDF_TARGET_ESP32P4` branches in `main/dns_sinkhole.c`. Do not
-  add WiFi code paths.
+These apply to the **DNS-sinkhole firmware** (`main/`). The generator role's
+own rules are covered above and don't inherit these (e.g. it *is* allowed to
+parse and allocate dynamically).
+
+- **Ethernet only, no WiFi.** Single supported board: the ESP32-P4-Function-EV-Board,
+  RMII to its onboard IP101 PHY (`idf.py set-target esp32p4`). PHY driver and
+  EMAC pin defaults live in `main/idf_component.yml`, `main/Kconfig.projbuild`,
+  and `main/dns_sinkhole.c`'s `eth_start()`. (`generator-node/` is a separate
+  ESP-IDF project — its own role, above — but the same P4-only hardware
+  assumption applies there too.) Do not add WiFi code paths, and do not
+  reintroduce a second MCU/PHY target without discussing it first.
 - **ESP-IDF v6.x**, not Arduino. Use ESP-IDF APIs (esp_eth, esp_netif,
   lwIP sockets, esp_task_wdt, esp_https_ota, NVS).
 - **No per-query heap allocation.** The DNS request path must use pre-allocated
@@ -46,14 +70,15 @@ performance. When in doubt, choose the more boring and more robust option.
 ```
 public blocklists (StevenBlack, OISD, AdGuard DNS filter, …)
         │
-        ▼   [offline build step — Go, in generator/, runs on a server/Pi/NAS/CI, NOT the ESP]
+        ▼   [generator role — either generator/ (Go, on a server/Pi/NAS/CI)
+        ▼    or generator-node/ (C firmware, on a dedicated ESP32-P4 node)]
    fetch → parse hosts/domain/ABP format → merge → dedupe → FNV-1a-64 hash → sort ascending → self-test
         │
         ├─► blocklist.bin      (sorted array of little-endian uint64 hashes, format 2)
         └─► manifest.json       {format, version, size, sha256, count, url}
         │
         ▼   [served directly by the generator's HTTP server, or copied to a static host]
-   ESP nodes poll manifest on a timer → if version changed:
+   DNS-sinkhole nodes (main/) poll manifest on a timer → if version changed:
         verify format matches → download blob → inactive data slot →
         verify sha256 + size + MIN count
         → pass: record active slot in NVS, load into new PSRAM buffer,
@@ -102,15 +127,14 @@ matching semantics.
 
 ## Build / flash
 
-- `make build flash monitor` (plain ESP32), `make build-p4 flash-p4 monitor-p4`
-  (ESP32-P4). Each target has its own build dir + sdkconfig (see `Makefile`)
-  so building one never disturbs the other's config — don't run raw
-  `idf.py set-target` at the repo root without `-B`/`-D SDKCONFIG=...`, or it
-  clobbers whichever target's sdkconfig is currently checked out there.
-- menuconfig must have: SPIRAM enabled; correct PHY (LAN8720 on ESP32, IP101 on
-  ESP32-P4) and RMII pin assignment for the target board; a custom partition
-  table with dual data partitions for the blocklist (+ dual OTA partitions if
-  firmware OTA is added).
+- `make build flash monitor` (see `Makefile`) — `sdkconfig.local`, if present,
+  is a gitignored extra defaults layer for machine-specific overrides (e.g.
+  `CONFIG_SINKHOLE_MANIFEST_URL` pointed at your LAN IP) merged in on top of
+  `sdkconfig.defaults`; it survives `fullclean`/`set-target` regenerating
+  `sdkconfig`.
+- menuconfig must have: SPIRAM enabled; IP101 PHY and RMII pin assignment
+  matching the board; a custom partition table with dual data partitions for
+  the blocklist (+ dual OTA partitions if firmware OTA is added).
 - Network access is available in this container for `idf.py`/component-manager
   fetches, but assume the human builds/flashes onto real hardware.
 
@@ -122,16 +146,21 @@ matching semantics.
   + the generator's in-RAM `/stats` UI, added at the owner's request. It must
   stay fire-and-forget — never let it grow into something the serve path
   depends on.)
-- Do not parse public blocklists on the ESP. That belongs in the offline build
-  step.
-- Do not introduce dynamic allocation into the query path.
+- Do not parse public blocklists in the DNS-sinkhole firmware (`main/`).
+  That's the generator role's job (`generator/` or `generator-node/`) — see
+  "Firmware roles" above.
+- Do not introduce dynamic allocation into the sinkhole's query path.
 - Do not add WiFi.
 - Do not use full-firmware OTA to deliver list updates.
 
 ## Style
 
-- C for firmware (ESP-IDF), Go for the offline generator (`generator/`).
+- C for firmware — both the DNS-sinkhole (`main/`) and, where it exists, the
+  generator-node (`generator-node/`). Go for the standalone generator
+  (`generator/`).
 - Keep functions small and readable; comment the *why*, especially around
   reliability trade-offs and the buffer/lifetime rules.
 - Match the existing style in `dns_sinkhole.c` (static buffers, explicit sizes,
-  clear separation between parse / lookup / respond / forward).
+  clear separation between parse / lookup / respond / forward) for sinkhole
+  code. The generator role is not held to the sinkhole's no-dynamic-allocation
+  rule — see "Firmware roles" above.

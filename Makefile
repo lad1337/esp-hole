@@ -1,4 +1,4 @@
-# Wrappers around idf.py (firmware, two targets) and the Go generator.
+# Wrappers around idf.py (firmware) and the Go generator.
 #
 # Requires an ESP-IDF v6.x environment sourced in your shell first, e.g.:
 #   source ~/.espressif/tools/activate_idf_v6.0.2.sh
@@ -14,42 +14,50 @@ $(error IDF_PATH is not set. Source your ESP-IDF environment first, e.g.: \
   source ~/.espressif/tools/activate_idf_v6.0.2.sh)
 endif
 
-BUILD_DIR_ESP32   := build
-BUILD_DIR_ESP32P4 := build.esp32p4
-SDKCONFIG_ESP32   := sdkconfig
-SDKCONFIG_ESP32P4 := sdkconfig.esp32p4
+BUILD_DIR := build
+SDKCONFIG := sdkconfig
 
 IDF_PY := $(IDF_PYTHON_ENV_PATH)/bin/python $(IDF_PATH)/tools/idf.py
 
-# sdkconfig.local.esp32p4, if present, is an untracked (gitignored) extra
-# defaults layer merged in on top of sdkconfig.defaults.esp32p4 — for
-# machine-specific overrides (e.g. CONFIG_SINKHOLE_MANIFEST_URL pointed at
-# your LAN IP) that must survive `set-target`/fullclean regenerating
-# sdkconfig.esp32p4, but shouldn't be committed. Listing SDKCONFIG_DEFAULTS
-# explicitly like this replaces idf.py's auto-detected defaults chain, so
-# both real defaults files are named here even when the local one is absent.
-SDKCONFIG_LOCAL_ESP32P4 := $(wildcard sdkconfig.local.esp32p4)
-SDKCONFIG_DEFAULTS_ESP32P4 := sdkconfig.defaults;sdkconfig.defaults.esp32p4$(if $(SDKCONFIG_LOCAL_ESP32P4),;sdkconfig.local.esp32p4,)
+# sdkconfig.local, if present, is an untracked (gitignored) extra defaults
+# layer merged in on top of sdkconfig.defaults — for machine-specific
+# overrides (e.g. CONFIG_SINKHOLE_MANIFEST_URL pointed at your LAN IP) that
+# must survive `set-target`/fullclean regenerating sdkconfig, but shouldn't be
+# committed. Listing SDKCONFIG_DEFAULTS explicitly like this replaces idf.py's
+# auto-detected defaults chain, so the real defaults file is named here even
+# when the local one is absent.
+SDKCONFIG_LOCAL := $(wildcard sdkconfig.local)
+SDKCONFIG_DEFAULTS := sdkconfig.defaults$(if $(SDKCONFIG_LOCAL),;sdkconfig.local,)
 
-IDF32   := $(IDF_PY) -B $(BUILD_DIR_ESP32)   -D SDKCONFIG=$(SDKCONFIG_ESP32)
-IDF32P4 := $(IDF_PY) -B $(BUILD_DIR_ESP32P4) -D SDKCONFIG=$(SDKCONFIG_ESP32P4) -D SDKCONFIG_DEFAULTS="$(SDKCONFIG_DEFAULTS_ESP32P4)"
+IDF := $(IDF_PY) -B $(BUILD_DIR) -D SDKCONFIG=$(SDKCONFIG) -D SDKCONFIG_DEFAULTS="$(SDKCONFIG_DEFAULTS)"
+
+# generator-node/ is a separate ESP-IDF project (its own role — see CLAUDE.md's
+# "Firmware roles" — not a build variant of the sinkhole firmware above), so it
+# gets its own build dir/sdkconfig and the same gitignored-local-overrides
+# mechanism, just rooted under generator-node/. `-C generator-node` anchors
+# idf.py/CMake's own relative-path resolution there, so SDKCONFIG/
+# SDKCONFIG_DEFAULTS below are relative to generator-node/, not the repo root
+# (unlike BUILD_DIR_GEN, which idf.py resolves relative to the invoking CWD).
+BUILD_DIR_GEN := generator-node/build
+SDKCONFIG_GEN := sdkconfig
+SDKCONFIG_LOCAL_GEN := $(wildcard generator-node/sdkconfig.local)
+SDKCONFIG_DEFAULTS_GEN := sdkconfig.defaults$(if $(SDKCONFIG_LOCAL_GEN),;sdkconfig.local,)
+IDFGEN := $(IDF_PY) -C generator-node -B $(BUILD_DIR_GEN) -D SDKCONFIG=$(SDKCONFIG_GEN) -D SDKCONFIG_DEFAULTS="$(SDKCONFIG_DEFAULTS_GEN)"
 
 ifdef PORT
 PORT_ARG := -p $(PORT)
 endif
 
-.PHONY: help \
-        build build-p4 \
-        flash flash-p4 \
-        monitor monitor-p4 \
-        flash-monitor flash-monitor-p4 \
-        menuconfig menuconfig-p4 \
-        clean clean-p4 fullclean fullclean-p4 \
+.PHONY: help ports \
+        build flash monitor flash-monitor menuconfig clean fullclean \
+        build-gen flash-gen monitor-gen flash-monitor-gen menuconfig-gen clean-gen fullclean-gen \
         generator-build generator-test generator-run \
         docker-build docker-up docker-down
 
 help:
-	@echo "Firmware (plain ESP32 + external LAN8720):"
+	@echo "  make ports             list connected USB serial ports"
+	@echo ""
+	@echo "Firmware (ESP32-P4-Function-EV-Board, onboard IP101):"
 	@echo "  make build             idf.py build"
 	@echo "  make flash             idf.py flash (PORT=/dev/tty... to override)"
 	@echo "  make monitor           idf.py monitor"
@@ -57,9 +65,9 @@ help:
 	@echo "  make menuconfig        idf.py menuconfig"
 	@echo "  make clean / fullclean"
 	@echo ""
-	@echo "Firmware (ESP32-P4-Function-EV-Board, onboard IP101):"
-	@echo "  make build-p4 / flash-p4 / monitor-p4 / flash-monitor-p4 / menuconfig-p4"
-	@echo "  make clean-p4 / fullclean-p4"
+	@echo "Generator-node firmware (generator-node/, same board, different role):"
+	@echo "  make build-gen / flash-gen / monitor-gen / flash-monitor-gen / menuconfig-gen"
+	@echo "  make clean-gen / fullclean-gen"
 	@echo ""
 	@echo "Go generator (generator/):"
 	@echo "  make generator-build   go build ./..."
@@ -69,54 +77,60 @@ help:
 	@echo "  make docker-up         docker compose up -d --build"
 	@echo "  make docker-down       docker compose down"
 
-## --- ESP32 + external LAN8720 ---------------------------------------------
+ports:
+	$(IDF_PYTHON_ENV_PATH)/bin/python -m serial.tools.list_ports -v
 
-build:
-	$(IDF32) build
-
-flash:
-	$(IDF32) $(PORT_ARG) flash
-
-monitor:
-	$(IDF32) $(PORT_ARG) monitor
-
-flash-monitor:
-	$(IDF32) $(PORT_ARG) flash monitor
-
-menuconfig:
-	$(IDF32) menuconfig
-
-clean:
-	$(IDF32) clean
-
-fullclean:
-	$(IDF32) fullclean
-
-## --- ESP32-P4-Function-EV-Board (onboard IP101) ---------------------------
+## --- ESP32-P4-Function-EV-Board (onboard IP101) ----------------------------
 ## First build sets the target explicitly; harmless (and fast) on later runs.
 
-build-p4:
-	$(IDF32P4) set-target esp32p4
-	$(IDF32P4) build
+build:
+	$(IDF) set-target esp32p4
+	$(IDF) build
 
-flash-p4: build-p4
-	$(IDF32P4) $(PORT_ARG) flash
+flash: build
+	$(IDF) $(PORT_ARG) flash
 
-monitor-p4:
-	$(IDF32P4) $(PORT_ARG) monitor
+monitor:
+	$(IDF) $(PORT_ARG) monitor
 
-flash-monitor-p4: build-p4
-	$(IDF32P4) $(PORT_ARG) flash monitor
+flash-monitor: build
+	$(IDF) $(PORT_ARG) flash monitor
 
-menuconfig-p4:
-	$(IDF32P4) set-target esp32p4
-	$(IDF32P4) menuconfig
+menuconfig:
+	$(IDF) set-target esp32p4
+	$(IDF) menuconfig
 
-clean-p4:
-	$(IDF32P4) clean
+clean:
+	$(IDF) clean
 
-fullclean-p4:
-	$(IDF32P4) fullclean
+fullclean:
+	$(IDF) fullclean
+
+## --- Generator-node firmware (generator-node/) -----------------------------
+## First build sets the target explicitly; harmless (and fast) on later runs.
+
+build-gen:
+	$(IDFGEN) set-target esp32p4
+	$(IDFGEN) build
+
+flash-gen: build-gen
+	$(IDFGEN) $(PORT_ARG) flash
+
+monitor-gen:
+	$(IDFGEN) $(PORT_ARG) monitor
+
+flash-monitor-gen: build-gen
+	$(IDFGEN) $(PORT_ARG) flash monitor
+
+menuconfig-gen:
+	$(IDFGEN) set-target esp32p4
+	$(IDFGEN) menuconfig
+
+clean-gen:
+	$(IDFGEN) clean
+
+fullclean-gen:
+	$(IDFGEN) fullclean
 
 ## --- Go generator (generator/) ---------------------------------------------
 

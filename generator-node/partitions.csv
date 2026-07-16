@@ -1,0 +1,21 @@
+# Partition table for the generator-node firmware (ESP32-P4-Function-EV-Board,
+# 32 MB flash). Different shape from the sinkhole's partitions.csv: this node
+# is a producer, not a consumer, so instead of blk_a/blk_b (subtype 0x40,
+# "download here, validate, serve from PSRAM") it gets art_a/art_b (subtype
+# 0x41, deliberately distinct) — "build/refresh here, persist the last
+# published artifact so a reboot can keep serving immediately." See
+# artifact_store.c (added in milestone M5) for the load/commit pattern, which
+# mirrors main/blocklist.c's slot-swap idiom but as the writer.
+#
+# 8 MB per slot covers ~1.05M domains (current merged set is ~379k, ~3 MB) —
+# comfortably past the 2-3x growth headroom estimated when this was sized.
+# The tail (~13.9 MB) is deliberately left unallocated, same rationale as the
+# sinkhole's own table: room for dual OTA app partitions later without moving
+# art_a/art_b, which would lose the persisted list across a firmware OTA.
+#
+# Name,     Type, SubType, Offset,   Size
+nvs,        data, nvs,     0x9000,   0x6000
+phy_init,   data, phy,     0xf000,   0x1000
+factory,    app,  factory, 0x10000,  0x200000
+art_a,      data, 0x41,    0x210000, 0x800000
+art_b,      data, 0x41,    0xA10000, 0x800000
