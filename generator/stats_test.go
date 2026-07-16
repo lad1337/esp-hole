@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,7 @@ import (
 )
 
 // firmwareLine mirrors the exact snprintf output of main/stats.c.
-const firmwareLine = "esphole,node=a4cf12aabbcc blocked=12i,forwarded=340i," +
+const firmwareLine = "esphole,node=10.0.0.11 blocked=12i,forwarded=340i," +
 	"timeouts=1i,lat_sum_us=6816400i,uptime_s=86710i," +
 	"h0=0i,h1=0i,h2=3i,h3=10i,h4=100i,h5=150i,h6=50i,h7=20i," +
 	"h8=5i,h9=2i,h10=0i,h11=0i,h12=0i,h13=0i,h14=0i,h15=0i"
@@ -22,7 +23,7 @@ func TestParseStatsLine(t *testing.T) {
 		if !ok {
 			t.Fatal("parse failed")
 		}
-		if s.node != "a4cf12aabbcc" {
+		if s.node != "10.0.0.11" {
 			t.Errorf("node = %q", s.node)
 		}
 		if s.blocked != 12 || s.forward != 340 || s.timeouts != 1 {
@@ -44,8 +45,8 @@ func TestParseStatsLine(t *testing.T) {
 		}{
 			{"trailing newline", firmwareLine + "\n"},
 			{"trailing crlf", firmwareLine + "\r\n"},
-			{"unknown field ignored", "esphole,node=aaaaaaaaaaaa blocked=1i,heap_free=1234i"},
-			{"future bucket ignored", "esphole,node=aaaaaaaaaaaa blocked=1i,h16=5i"},
+			{"unknown field ignored", "esphole,node=10.0.0.1 blocked=1i,heap_free=1234i"},
+			{"future bucket ignored", "esphole,node=10.0.0.1 blocked=1i,h16=5i"},
 		}
 		for _, c := range cases {
 			if _, ok := parseStatsLine(c.in); !ok {
@@ -62,20 +63,20 @@ func TestParseStatsLine(t *testing.T) {
 			{"empty", ""},
 			{"garbage", "hello world"},
 			{"binary junk", "\x00\x01\x02 \xff\xfe"},
-			{"wrong measurement", "pihole,node=a4cf12aabbcc blocked=1i"},
+			{"wrong measurement", "pihole,node=10.0.0.11 blocked=1i"},
 			{"no node tag", "esphole blocked=1i"},
-			{"short mac", "esphole,node=a4cf12 blocked=1i"},
-			{"long mac", "esphole,node=a4cf12aabbccdd blocked=1i"},
-			{"uppercase mac", "esphole,node=A4CF12AABBCC blocked=1i"},
-			{"non-hex mac", "esphole,node=zzzzzzzzzzzz blocked=1i"},
-			{"missing i suffix", "esphole,node=a4cf12aabbcc blocked=1"},
-			{"negative count", "esphole,node=a4cf12aabbcc blocked=-1i"},
-			{"negative uptime", "esphole,node=a4cf12aabbcc uptime_s=-5i"},
-			{"count overflow", "esphole,node=a4cf12aabbcc blocked=99999999999999999999i"},
-			{"field without =", "esphole,node=a4cf12aabbcc blocked"},
-			{"no fields", "esphole,node=a4cf12aabbcc"},
-			{"bad hist value", "esphole,node=a4cf12aabbcc h3=xxi"},
-			{"oversized", "esphole,node=a4cf12aabbcc blocked=1i," + strings.Repeat("x", 1500)},
+			{"truncated ip", "esphole,node=10.0.0 blocked=1i"},
+			{"out of range octet", "esphole,node=10.0.0.256 blocked=1i"},
+			{"ipv6 address", "esphole,node=::1 blocked=1i"},
+			{"not an ip", "esphole,node=zzzzzzzzzzzz blocked=1i"},
+			{"missing i suffix", "esphole,node=10.0.0.11 blocked=1"},
+			{"negative count", "esphole,node=10.0.0.11 blocked=-1i"},
+			{"negative uptime", "esphole,node=10.0.0.11 uptime_s=-5i"},
+			{"count overflow", "esphole,node=10.0.0.11 blocked=99999999999999999999i"},
+			{"field without =", "esphole,node=10.0.0.11 blocked"},
+			{"no fields", "esphole,node=10.0.0.11"},
+			{"bad hist value", "esphole,node=10.0.0.11 h3=xxi"},
+			{"oversized", "esphole,node=10.0.0.11 blocked=1i," + strings.Repeat("x", 1500)},
 		}
 		for _, c := range cases {
 			if _, ok := parseStatsLine(c.in); ok {
@@ -101,10 +102,10 @@ func sampleWith(node string, blocked, forward uint64) statsSample {
 func TestStatsStoreIngest(t *testing.T) {
 	t.Run("same minute accumulates", func(t *testing.T) {
 		st, now := testStore(time.Hour)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 1, 10))
+		st.ingest(sampleWith("10.0.0.1", 1, 10))
 		*now = now.Add(10 * time.Second)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 2, 20))
-		ns := st.nodes["aaaaaaaaaaaa"]
+		st.ingest(sampleWith("10.0.0.1", 2, 20))
+		ns := st.nodes["10.0.0.1"]
 		p := ns.points[ns.head]
 		if p.Blocked != 3 || p.Forward != 30 {
 			t.Errorf("head point = %+v", p)
@@ -113,10 +114,10 @@ func TestStatsStoreIngest(t *testing.T) {
 
 	t.Run("minute advance zero-fills gap", func(t *testing.T) {
 		st, now := testStore(time.Hour)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 1, 0))
+		st.ingest(sampleWith("10.0.0.1", 1, 0))
 		*now = now.Add(3 * time.Minute)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 5, 0))
-		ns := st.nodes["aaaaaaaaaaaa"]
+		st.ingest(sampleWith("10.0.0.1", 5, 0))
+		ns := st.nodes["10.0.0.1"]
 		if got := ns.points[ns.head].Blocked; got != 5 {
 			t.Errorf("head = %d", got)
 		}
@@ -134,10 +135,10 @@ func TestStatsStoreIngest(t *testing.T) {
 	t.Run("ring wraps at tiny retention", func(t *testing.T) {
 		st, now := testStore(5 * time.Minute)
 		for i := 0; i < 8; i++ {
-			st.ingest(sampleWith("aaaaaaaaaaaa", uint64(i+1), 0))
+			st.ingest(sampleWith("10.0.0.1", uint64(i+1), 0))
 			*now = now.Add(time.Minute)
 		}
-		ns := st.nodes["aaaaaaaaaaaa"]
+		ns := st.nodes["10.0.0.1"]
 		if len(ns.points) != 5 {
 			t.Fatalf("ring len = %d", len(ns.points))
 		}
@@ -155,10 +156,10 @@ func TestStatsStoreIngest(t *testing.T) {
 
 	t.Run("silence beyond retention clears ring", func(t *testing.T) {
 		st, now := testStore(5 * time.Minute)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 100, 0))
+		st.ingest(sampleWith("10.0.0.1", 100, 0))
 		*now = now.Add(30 * time.Minute)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 1, 0))
-		ns := st.nodes["aaaaaaaaaaaa"]
+		st.ingest(sampleWith("10.0.0.1", 1, 0))
+		ns := st.nodes["10.0.0.1"]
 		var total uint64
 		for _, p := range ns.points {
 			total += p.Blocked
@@ -170,26 +171,24 @@ func TestStatsStoreIngest(t *testing.T) {
 
 	t.Run("stale node evicted", func(t *testing.T) {
 		st, now := testStore(5 * time.Minute)
-		st.ingest(sampleWith("aaaaaaaaaaaa", 1, 0))
+		st.ingest(sampleWith("10.0.0.1", 1, 0))
 		*now = now.Add(10 * time.Minute)
-		st.ingest(sampleWith("bbbbbbbbbbbb", 1, 0))
+		st.ingest(sampleWith("10.0.0.2", 1, 0))
 		st.mu.Lock()
 		st.evictStale(*now)
 		st.mu.Unlock()
-		if _, ok := st.nodes["aaaaaaaaaaaa"]; ok {
+		if _, ok := st.nodes["10.0.0.1"]; ok {
 			t.Error("stale node not evicted")
 		}
-		if _, ok := st.nodes["bbbbbbbbbbbb"]; !ok {
+		if _, ok := st.nodes["10.0.0.2"]; !ok {
 			t.Error("fresh node evicted")
 		}
 	})
 
 	t.Run("node cap drops extras", func(t *testing.T) {
 		st, _ := testStore(time.Hour)
-		hex := "0123456789ab"
 		for i := 0; i < statsNodeCap+1; i++ {
-			node := hex[:10] + string([]byte{hex[i%12], hex[(i/12)%12]})
-			// Build distinct 12-char hex ids deterministically.
+			node := fmt.Sprintf("10.0.0.%d", i+1)
 			st.ingest(sampleWith(node, 1, 0))
 		}
 		if len(st.nodes) > statsNodeCap {
@@ -269,7 +268,7 @@ func TestStatsHTTPAPI(t *testing.T) {
 
 	// Populate a store with two minutes of data for one node.
 	store, now := testStore(time.Hour)
-	sm := statsSample{node: "a4cf12aabbcc", blocked: 6, forward: 54,
+	sm := statsSample{node: "10.0.0.11", blocked: 6, forward: 54,
 		latSumUS: 54 * 5000, uptimeS: 1000}
 	sm.hist[5] = 54 // all samples in [2048, 4096) µs
 	store.ingest(sm)
@@ -313,10 +312,10 @@ func TestStatsHTTPAPI(t *testing.T) {
 		if len(r.Times) != 30 || r.Step != 60 {
 			t.Fatalf("times len %d step %d, want 30/60", len(r.Times), r.Step)
 		}
-		if len(r.Nodes) != 1 || r.Nodes[0].ID != "a4cf12aabbcc" {
+		if len(r.Nodes) != 1 || r.Nodes[0].ID != "10.0.0.11" {
 			t.Fatalf("nodes = %+v", r.Nodes)
 		}
-		ser, ok := r.Series["a4cf12aabbcc"]
+		ser, ok := r.Series["10.0.0.11"]
 		if !ok {
 			t.Fatal("series missing")
 		}
@@ -383,8 +382,8 @@ func TestStatsUDPEndToEnd(t *testing.T) {
 	// One valid line, one garbage datagram, one multi-line datagram.
 	conn.Write([]byte(firmwareLine))
 	conn.Write([]byte("total garbage \x00\xff"))
-	conn.Write([]byte("esphole,node=bbbbbbbbbbbb blocked=7i\n" +
-		"esphole,node=cccccccccccc forwarded=9i\n"))
+	conn.Write([]byte("esphole,node=10.0.0.2 blocked=7i\n" +
+		"esphole,node=10.0.0.3 forwarded=9i\n"))
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -402,11 +401,11 @@ func TestStatsUDPEndToEnd(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if ns := store.nodes["a4cf12aabbcc"]; ns == nil ||
+	if ns := store.nodes["10.0.0.11"]; ns == nil ||
 		ns.points[ns.head].Forward != 340 {
 		t.Error("valid line not ingested correctly")
 	}
-	if ns := store.nodes["bbbbbbbbbbbb"]; ns == nil ||
+	if ns := store.nodes["10.0.0.2"]; ns == nil ||
 		ns.points[ns.head].Blocked != 7 {
 		t.Error("multi-line datagram line 1 lost")
 	}

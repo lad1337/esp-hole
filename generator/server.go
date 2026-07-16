@@ -71,6 +71,9 @@ func (s *server) refresh() {
 // the routes directly via httptest without binding a real listener.
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/stats/ui/", http.StatusFound)
+	})
 	mux.HandleFunc("GET /manifest.json", func(w http.ResponseWriter, r *http.Request) {
 		cur := s.current.Load()
 		if cur == nil {

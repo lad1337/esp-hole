@@ -17,15 +17,16 @@ void stats_count_blocked(void);
 void stats_count_forwarded(uint32_t latency_us);
 void stats_count_timeout(void);
 
-/* Call once from app_main after the network is up (reads the ethernet MAC
- * and spawns the sender task). */
-void stats_start(void);
+/* Call once from app_main after the network is up, passing the node's own
+ * dotted-quad IPv4 address as the stats "node" identity (and spawns the
+ * sender task). */
+void stats_start(const char *node_ip);
 
 #else
 
 static inline void stats_count_blocked(void) {}
 static inline void stats_count_forwarded(uint32_t latency_us) { (void)latency_us; }
 static inline void stats_count_timeout(void) {}
-static inline void stats_start(void) {}
+static inline void stats_start(const char *node_ip) { (void)node_ip; }
 
 #endif

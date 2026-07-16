@@ -18,7 +18,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "esp_mac.h"
 #include "esp_timer.h"
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
@@ -80,7 +79,7 @@ typedef struct {
 } stats_snap_t;
 
 /* Static state only — no allocation, matching the rest of the firmware. */
-static char s_node[13];              /* ethernet MAC as 12 hex chars */
+static char s_node[16];              /* dotted-quad IPv4, e.g. "192.168.1.154" */
 static char s_line[512];
 static int s_sock = -1;
 static struct sockaddr_in s_target;
@@ -185,12 +184,9 @@ static void stats_task(void *arg)
     }
 }
 
-void stats_start(void)
+void stats_start(const char *node_ip)
 {
-    uint8_t mac[6];
-    ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_ETH));
-    snprintf(s_node, sizeof(s_node), "%02x%02x%02x%02x%02x%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(s_node, sizeof(s_node), "%s", node_ip);
     /* Priority 2: below the updater (3) and far below the DNS task (5), so
      * stats can never starve serving. Not watchdog-subscribed (same as the
      * updater) — blocking in getaddrinfo here is harmless. */

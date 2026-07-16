@@ -30,7 +30,7 @@ var latBucketUpper = [statsHistBuckets]float64{
 
 // statsSample is one decoded node report (interval deltas + uptime gauge).
 type statsSample struct {
-	node     string // 12 lowercase hex chars (ethernet MAC)
+	node     string // dotted-quad IPv4 address
 	blocked  uint64
 	forward  uint64
 	timeouts uint64
@@ -41,7 +41,7 @@ type statsSample struct {
 
 // parseStatsLine decodes the exact subset the nodes emit:
 //
-//	esphole,node=<12hex> blocked=<n>i,forwarded=<n>i,...,h0=<n>i,...,h15=<n>i
+//	esphole,node=<ipv4> blocked=<n>i,forwarded=<n>i,...,h0=<n>i,...,h15=<n>i
 //
 // Unknown fields are ignored (forward compatibility). Anything malformed
 // returns ok=false — this function must never panic, whatever arrives on
@@ -61,14 +61,8 @@ func parseStatsLine(line string) (statsSample, bool) {
 		return s, false
 	}
 	node := header[len(prefix):]
-	if len(node) != 12 {
+	if ip := net.ParseIP(node); ip == nil || ip.To4() == nil {
 		return s, false
-	}
-	for i := 0; i < len(node); i++ {
-		c := node[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return s, false
-		}
 	}
 	s.node = node
 
