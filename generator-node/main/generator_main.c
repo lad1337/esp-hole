@@ -19,11 +19,13 @@
 #include "esp_task_wdt.h"
 #include "nvs_flash.h"
 
+#include "allowlist.h"
 #include "artifact_store.h"
 #include "fetch.h"
 #include "http_serve.h"
 #include "net.h"
 #include "platform.h"
+#include "stats_ui.h"
 
 /* Must comfortably exceed fetch.c's HTTP_TIMEOUT_MS (30s): a single
  * esp_http_client_read() can legitimately block for that long waiting on a
@@ -108,6 +110,7 @@ static httpd_handle_t start_http_server(void)
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &refresh_uri));
     http_serve_register(server); /* /manifest.json, /blocklist.bin — 503 until first publish */
+    stats_ui_start(server);      /* /stats, /stats/ui/ — no-op if CONFIG_GENERATOR_STATS_ENABLE=n */
     return server;
 }
 
@@ -197,6 +200,8 @@ void app_main(void)
     if (esp_task_wdt_reconfigure(&wdt_cfg) != ESP_OK) {
         ESP_ERROR_CHECK(esp_task_wdt_init(&wdt_cfg));
     }
+
+    allowlist_init();
 
     net_start();
     ESP_LOGI(TAG, "waiting for Ethernet...");

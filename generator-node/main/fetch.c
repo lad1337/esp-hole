@@ -14,6 +14,8 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 
+#include "allowlist.h"
+#include "hash.h"
 #include "parse.h"
 
 static const char *TAG = "fetch";
@@ -46,6 +48,9 @@ typedef struct {
 static void add_sink(const char *domain, size_t len, void *vctx)
 {
     sink_ctx_t *ctx = (sink_ctx_t *)vctx;
+    if (allowlist_contains(domain_hash(domain, len))) {
+        return; /* manual "never block" entry — never even reaches the builder */
+    }
     if (blocklist_builder_add(ctx->builder, domain, len)) {
         ctx->added++;
     }

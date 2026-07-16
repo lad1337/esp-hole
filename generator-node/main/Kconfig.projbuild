@@ -86,4 +86,35 @@ menu "Generator node"
             reservation). Set explicitly if this node is reachable at a
             different address (DNS name, NAT, etc).
 
+    comment "Node stats (UDP reports from DNS-sinkhole nodes)"
+
+    config GENERATOR_STATS_ENABLE
+        bool "Collect + serve node query stats"
+        default y
+        help
+            Best-effort UDP listener (InfluxDB line protocol, same wire
+            format main/stats.c sends and generator/stats.go already
+            parses) plus a simple /stats page. Point sinkhole nodes'
+            CONFIG_SINKHOLE_STATS_HOST at this node's IP and
+            CONFIG_SINKHOLE_STATS_PORT at GENERATOR_STATS_PORT below.
+            Disable to compile the listener out entirely.
+
+    config GENERATOR_STATS_PORT
+        int "Stats UDP port"
+        depends on GENERATOR_STATS_ENABLE
+        range 1 65535
+        default 8094
+
+    comment "Manual allowlist"
+
+    config GENERATOR_ALLOWLIST
+        string "Domains that are never blocked (comma-separated)"
+        default ""
+        help
+            Filtered out of every generated list before publish — for a
+            false positive on one of the configured sources (a domain that
+            shouldn't be blocked but ended up on a public list anyway).
+            Rebuild to change, same convention as the source URLs above.
+            Up to 32 entries.
+
 endmenu
