@@ -131,6 +131,16 @@ static void refresh_task(void *arg)
         const blocklist_generate_status_t status =
             fetch_and_generate(&GENERATOR_PLATFORM, CONFIG_GENERATOR_MIN_DOMAINS, &art);
 
+        /* fetch_and_generate() only resets the watchdog during the fetch
+         * loop itself (fetch.c) — a connect attempt can legitimately eat
+         * close to its own 30s client timeout right before that loop ends,
+         * leaving little of the 45s budget for everything below. Flash I/O
+         * on a multi-MB blob (artifact_store_save's erase+write+readback+
+         * verify) is genuinely slow on real hardware in a way the host test
+         * harness never exercises (no real flash there) — this reset is
+         * what was missing when this tripped the watchdog mid-persist. */
+        esp_task_wdt_reset();
+
         switch (status) {
         case BLOCKLIST_GENERATE_OK: {
             char version[17];
@@ -145,6 +155,7 @@ static void refresh_task(void *arg)
             if (artifact_store_save(&GENERATOR_PLATFORM, &art, version) != ESP_OK) {
                 ESP_LOGW(TAG, "failed to persist artifact to flash (serving from memory only)");
             }
+            esp_task_wdt_reset(); /* fresh window before the manifest encode + serve swap */
             http_serve_publish(&art, version, url, GENERATOR_PLATFORM.realloc);
             break;
         }

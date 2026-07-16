@@ -10,6 +10,7 @@
 
 #include "esp_log.h"
 #include "esp_partition.h"
+#include "esp_task_wdt.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -134,6 +135,7 @@ esp_err_t artifact_store_save(const blocklist_platform_t *platform,
         return ESP_ERR_INVALID_SIZE;
     }
 
+    esp_task_wdt_reset(); /* fresh window before erase+write of a multi-MB blob */
     const size_t erase_sz =
         (art->blob_len + part->erase_size - 1) & ~(size_t)(part->erase_size - 1);
     err = esp_partition_erase_range(part, 0, erase_sz);
@@ -171,6 +173,7 @@ esp_err_t artifact_store_save(const blocklist_platform_t *platform,
      * the write landed correctly. The readback buffer can be multi-MB, so
      * like the artifact itself it comes from PSRAM via the platform, not
      * plain malloc(). */
+    esp_task_wdt_reset(); /* fresh window before the readback + sha256 recompute */
     uint8_t *readback = platform->realloc(NULL, art->blob_len);
     if (readback == NULL) {
         nvs_close(nvs);
