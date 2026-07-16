@@ -9,6 +9,7 @@
  *    error paths, and panics (→ reboot) if the loop ever stalls,
  *  - failures are silent drops: the client's own retry is the recovery path.
  */
+#include <stdint.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -41,6 +42,9 @@
 #define DNS_MAX_PKT 1500 /* one MTU; larger UDP answers are vanishingly rare */
 #define DNS_MAX_NAME 254 /* 253 chars dotted form + NUL */
 
+#define DNS_CACHE_SIZE  100
+#define DNS_CACHE_TTL_US (5LL * 60 * 1000000) /* 5 min, flat — not the answer's own TTL */
+
 static const char *TAG = "sinkhole";
 
 /* Static buffers — the serve path never allocates. Single DNS task, so no
@@ -49,6 +53,26 @@ static const char *TAG = "sinkhole";
 static uint8_t s_pkt[DNS_MAX_PKT];
 static uint8_t s_ans[DNS_MAX_PKT];
 static char s_name[DNS_MAX_NAME];
+
+/* Upstream-answer cache for non-blocked queries — 100 entries, flat 5 min
+ * TTL, LRU eviction. Static array, no heap: DNS_CACHE_SIZE * DNS_MAX_PKT is
+ * ~150 KiB of internal RAM, comfortably inside what's free (this is not
+ * PSRAM — the blocklist owns that). Key is domain_hash(name) combined with
+ * the query TYPE (A vs AAAA are different answers for the same name) — a
+ * plain per-name cache would serve an A-record cache hit to an AAAA query.
+ * O(n) scan on every lookup/insert; n=100 makes that irrelevant next to a
+ * real UDP round-trip. */
+typedef struct {
+    bool valid;
+    uint64_t key;
+    int64_t inserted_us;
+    uint32_t last_used; /* LRU clock tick; lowest = evict first */
+    uint16_t len;
+    uint8_t data[DNS_MAX_PKT];
+} dns_cache_entry_t;
+
+static dns_cache_entry_t s_cache[DNS_CACHE_SIZE];
+static uint32_t s_cache_clock;
 
 static EventGroupHandle_t s_net_events;
 #define GOT_IP_BIT BIT0
@@ -66,6 +90,54 @@ static uint64_t domain_hash(const char *s, size_t len)
         h *= 0x100000001b3ULL;
     }
     return h;
+}
+
+/* Returns the cache slot for key, or -1 on a miss (not found, or found but
+ * past DNS_CACHE_TTL_US — expired entries are invalidated in place so the
+ * slot is immediately reusable). */
+static int dns_cache_find(uint64_t key, int64_t now)
+{
+    for (int i = 0; i < DNS_CACHE_SIZE; i++) {
+        if (s_cache[i].valid && s_cache[i].key == key) {
+            if (now - s_cache[i].inserted_us > DNS_CACHE_TTL_US) {
+                s_cache[i].valid = false;
+                return -1;
+            }
+            s_cache[i].last_used = ++s_cache_clock;
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Inserts/overwrites the entry for key, evicting a free slot if one exists,
+ * else the least-recently-used one. Silently drops (never truncates) an
+ * answer too large for the buffer — vanishingly rare, and a cache miss next
+ * time is harmless. */
+static void dns_cache_insert(uint64_t key, const uint8_t *data, int len, int64_t now)
+{
+    if (len <= 0 || (size_t)len > sizeof(s_cache[0].data)) {
+        return;
+    }
+    int victim = 0;
+    uint32_t oldest = UINT32_MAX;
+    for (int i = 0; i < DNS_CACHE_SIZE; i++) {
+        if (!s_cache[i].valid) {
+            victim = i;
+            break;
+        }
+        if (s_cache[i].last_used < oldest) {
+            oldest = s_cache[i].last_used;
+            victim = i;
+        }
+    }
+    dns_cache_entry_t *e = &s_cache[victim];
+    e->valid = true;
+    e->key = key;
+    e->inserted_us = now;
+    e->last_used = ++s_cache_clock;
+    e->len = (uint16_t)len;
+    memcpy(e->data, data, (size_t)len);
 }
 
 /* Extract the first question name as a dotted, lowercased string (no trailing
@@ -260,15 +332,39 @@ static void dns_task(void *arg)
             const int rlen = make_nxdomain(s_pkt, q_end);
             sendto(sock, s_pkt, rlen, 0, (struct sockaddr *)&client, client_len);
         } else {
-            const int64_t t0 = esp_timer_get_time();
-            const int alen = forward_upstream(usock, s_pkt, n, s_ans, sizeof(s_ans));
-            if (alen > 0) {
-                stats_count_forwarded((uint32_t)(esp_timer_get_time() - t0));
-                sendto(sock, s_ans, alen, 0, (struct sockaddr *)&client,
+            /* Cache key includes qtype: A and AAAA are different answers for
+             * the same name, and a name-only key would serve one for the
+             * other. qtype sits at the 2 bytes right before qclass, i.e.
+             * right before q_end (parse_question's returned offset is just
+             * past qtype+qclass). */
+            const uint16_t qtype = ((uint16_t)s_pkt[q_end - 4] << 8) | s_pkt[q_end - 3];
+            const uint64_t cache_key =
+                domain_hash(s_name, strlen(s_name)) ^ ((uint64_t)qtype << 32);
+            const int64_t now = esp_timer_get_time();
+            const int hit = dns_cache_find(cache_key, now);
+
+            if (hit >= 0) {
+                /* Replay the cached answer bytes with this query's own
+                 * transaction ID patched in — clients drop a response whose
+                 * ID doesn't match their query. */
+                memcpy(s_ans, s_cache[hit].data, s_cache[hit].len);
+                s_ans[0] = s_pkt[0];
+                s_ans[1] = s_pkt[1];
+                stats_count_forwarded(0); /* ponytail: counted as forwarded, not a separate cache-hit stat */
+                sendto(sock, s_ans, s_cache[hit].len, 0, (struct sockaddr *)&client,
                        client_len);
             } else {
-                /* upstream slow/dead — drop silently, client retries */
-                stats_count_timeout();
+                const int64_t t0 = now;
+                const int alen = forward_upstream(usock, s_pkt, n, s_ans, sizeof(s_ans));
+                if (alen > 0) {
+                    stats_count_forwarded((uint32_t)(esp_timer_get_time() - t0));
+                    dns_cache_insert(cache_key, s_ans, alen, now);
+                    sendto(sock, s_ans, alen, 0, (struct sockaddr *)&client,
+                           client_len);
+                } else {
+                    /* upstream slow/dead — drop silently, client retries */
+                    stats_count_timeout();
+                }
             }
         }
     }
