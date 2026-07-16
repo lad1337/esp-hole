@@ -1,4 +1,4 @@
-# Wrappers around idf.py (firmware) and the Go generator.
+# Wrappers around idf.py for both firmware roles (sinkhole + generator-node).
 #
 # Requires an ESP-IDF v6.x environment sourced in your shell first, e.g.:
 #   source ~/.espressif/tools/activate_idf_v6.0.2.sh
@@ -50,9 +50,7 @@ endif
 
 .PHONY: help ports \
         build flash monitor flash-monitor menuconfig clean fullclean \
-        build-gen flash-gen monitor-gen flash-monitor-gen menuconfig-gen clean-gen fullclean-gen \
-        generator-build generator-test generator-run \
-        docker-build docker-up docker-down
+        build-gen flash-gen monitor-gen flash-monitor-gen menuconfig-gen clean-gen fullclean-gen
 
 help:
 	@echo "  make ports             list connected USB serial ports"
@@ -68,14 +66,6 @@ help:
 	@echo "Generator-node firmware (generator-node/, same board, different role):"
 	@echo "  make build-gen / flash-gen / monitor-gen / flash-monitor-gen / menuconfig-gen"
 	@echo "  make clean-gen / fullclean-gen"
-	@echo ""
-	@echo "Go generator (generator/):"
-	@echo "  make generator-build   go build ./..."
-	@echo "  make generator-test    go test ./..."
-	@echo "  make generator-run     go run . -config config.json -oneshot"
-	@echo "  make docker-build      docker compose build"
-	@echo "  make docker-up         docker compose up -d --build"
-	@echo "  make docker-down       docker compose down"
 
 ports:
 	$(IDF_PYTHON_ENV_PATH)/bin/python -m serial.tools.list_ports -v
@@ -131,23 +121,3 @@ clean-gen:
 
 fullclean-gen:
 	$(IDFGEN) fullclean
-
-## --- Go generator (generator/) ---------------------------------------------
-
-generator-build:
-	cd generator && go build ./...
-
-generator-test:
-	cd generator && go test ./...
-
-generator-run:
-	cd generator && go run . -config config.json -oneshot
-
-docker-build:
-	docker compose build
-
-docker-up:
-	docker compose up -d --build
-
-docker-down:
-	docker compose down

@@ -19,13 +19,6 @@
 /sdkconfig.local
 /generator-node/sdkconfig.local
 
-# Go build artifacts
-/generator/generator
-/generator/data/
-
-# Personal/local generator config (machine-specific IP, not for commit)
-/generator/config.json
-
 # blocklist_pipeline host test harness build artifacts + downloaded scale-test data
 /generator-node/components/blocklist_pipeline/test/host_test
 /generator-node/components/blocklist_pipeline/test/scale_test

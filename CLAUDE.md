@@ -23,17 +23,18 @@ apply one role's rules to the other's code.
 - **DNS-sinkhole** (`main/`) — the redundant, LAN-facing nodes that actually
   answer queries. This is the reliability-critical hot path. Everything in
   "Hard constraints" below applies here, unchanged.
-- **Generator** — builds `blocklist.bin`/`manifest.json` from public
-  blocklists (fetch → parse → merge/dedupe → hash → sort → self-test). Not a
-  query-serving hot path, so it's allowed to parse untrusted text, allocate
-  dynamically, and make outbound HTTPS calls — none of that is permitted in
-  the sinkhole role. Its one non-negotiable rule, carried over from the
-  sinkhole's own philosophy: never let a bad or partial generation corrupt or
-  overwrite what it's currently publishing (self-test before publish, atomic
-  slot swap). There are two current implementations of this one role:
-  `generator/` (Go, runs on a server/Pi/NAS/CI) and `generator-node/` (C
-  firmware, runs on a dedicated ESP32-P4 node — its own ESP-IDF project, own
-  partition table, own Kconfig; not built alongside `main/`).
+- **Generator** (`generator-node/`) — builds `blocklist.bin`/`manifest.json`
+  from public blocklists (fetch → parse → merge/dedupe → hash → sort →
+  self-test). Not a query-serving hot path, so it's allowed to parse
+  untrusted text, allocate dynamically, and make outbound HTTPS calls — none
+  of that is permitted in the sinkhole role. Its one non-negotiable rule,
+  carried over from the sinkhole's own philosophy: never let a bad or partial
+  generation corrupt or overwrite what it's currently publishing (self-test
+  before publish, atomic slot swap). Its own ESP-IDF project — own partition
+  table, own Kconfig; not built alongside `main/`. (An earlier Go
+  implementation of this same role, meant to run off-device on a
+  server/Pi/NAS/CI, has been removed in favor of `generator-node/` running
+  the whole fleet on dedicated hardware with no laptop/server dependency.)
 
 ## Hard constraints — do not violate
 
@@ -70,14 +71,13 @@ parse and allocate dynamically).
 ```
 public blocklists (StevenBlack, OISD, AdGuard DNS filter, …)
         │
-        ▼   [generator role — either generator/ (Go, on a server/Pi/NAS/CI)
-        ▼    or generator-node/ (C firmware, on a dedicated ESP32-P4 node)]
+        ▼   [generator role — generator-node/, its own ESP32-P4 firmware]
    fetch → parse hosts/domain/ABP format → merge → dedupe → FNV-1a-64 hash → sort ascending → self-test
         │
         ├─► blocklist.bin      (sorted array of little-endian uint64 hashes, format 2)
         └─► manifest.json       {format, version, size, sha256, count, url}
         │
-        ▼   [served directly by the generator's HTTP server, or copied to a static host]
+        ▼   [served directly by the generator's HTTP server]
    DNS-sinkhole nodes (main/) poll manifest on a timer → if version changed:
         verify format matches → download blob → inactive data slot →
         verify sha256 + size + MIN count
@@ -87,12 +87,13 @@ public blocklists (StevenBlack, OISD, AdGuard DNS filter, …)
 ```
 
 Key invariants:
-- The **FNV-1a hash function must be byte-identical** between the firmware
-  (`domain_hash` in `dns_sinkhole.c`, 64-bit) and the offline generator
-  (`fnv1a64` in `generator/hash.go`). If you change one, change both, bump the
-  manifest `format` field (currently 2) so a firmware/generator mismatch is
-  refused rather than silently corrupting lookups, and update the pinned
-  parity vectors in `generator/hash_test.go`.
+- The **FNV-1a hash function must be byte-identical** between the sinkhole
+  firmware (`domain_hash` in `dns_sinkhole.c`, 64-bit) and the generator
+  (`domain_hash` in `generator-node/components/blocklist_pipeline/hash.c`). If
+  you change one, change both, bump the manifest `format` field (currently 2)
+  so a firmware/generator mismatch is refused rather than silently corrupting
+  lookups, and update the pinned parity vectors in
+  `generator-node/components/blocklist_pipeline/test/host_main.c`.
 - `blocklist.bin` is a flat, sorted-ascending array of `uint64_t` little-endian
   hashes (8 bytes/domain — PSRAM realistically caps this around ~250k domains).
   Lookup is binary search. Sorting is the generator's responsibility; the
@@ -147,17 +148,16 @@ matching semantics.
   stay fire-and-forget — never let it grow into something the serve path
   depends on.)
 - Do not parse public blocklists in the DNS-sinkhole firmware (`main/`).
-  That's the generator role's job (`generator/` or `generator-node/`) — see
-  "Firmware roles" above.
+  That's the generator role's job (`generator-node/`) — see "Firmware roles"
+  above.
 - Do not introduce dynamic allocation into the sinkhole's query path.
 - Do not add WiFi.
 - Do not use full-firmware OTA to deliver list updates.
 
 ## Style
 
-- C for firmware — both the DNS-sinkhole (`main/`) and, where it exists, the
-  generator-node (`generator-node/`). Go for the standalone generator
-  (`generator/`).
+- C for firmware — both the DNS-sinkhole (`main/`) and the generator-node
+  (`generator-node/`).
 - Keep functions small and readable; comment the *why*, especially around
   reliability trade-offs and the buffer/lifetime rules.
 - Match the existing style in `dns_sinkhole.c` (static buffers, explicit sizes,

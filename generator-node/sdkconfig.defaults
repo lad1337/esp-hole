@@ -24,3 +24,18 @@ CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
 # full CA bundle — more host diversity than the sinkhole's single manifest
 # host, so keep the default (full) bundle rather than trimming it.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+
+# HTTP server: manifest.json/blocklist.bin/healthz/refresh/stats. Port 80 so
+# a plain http://<node-ip>/manifest.json works with no port in the URL.
+CONFIG_GENERATOR_HTTP_PORT=80
+
+# Best-effort UDP node-stats collector + GET /stats, /stats/ui/ — see
+# main/stats.c and generator-node/main/stats_ui.c. Point sinkhole nodes'
+# CONFIG_SINKHOLE_STATS_HOST at this node's IP to feed it.
+CONFIG_GENERATOR_STATS_ENABLE=y
+CONFIG_GENERATOR_STATS_PORT=8094
+
+# CONFIG_GENERATOR_ALLOWLIST is intentionally left at its empty default here
+# — set your own "never block" domains in a gitignored sdkconfig.local
+# instead of committing them, e.g.:
+#   CONFIG_GENERATOR_ALLOWLIST="example.com,mybank.example"
