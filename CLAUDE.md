@@ -138,6 +138,10 @@ matching semantics.
   the blocklist (+ dual OTA partitions if firmware OTA is added).
 - Network access is available in this container for `idf.py`/component-manager
   fetches, but assume the human builds/flashes onto real hardware.
+- `idf_monitor` needs a TTY, which a sandboxed shell doesn't have. To read a
+  boot log anyway, use `scripts/read_boot.py <port> [seconds]` — it hard-resets
+  the board via RTS and dumps raw serial output. Run it with the ESP-IDF venv's
+  Python: `$IDF_PYTHON_ENV_PATH/bin/python scripts/read_boot.py /dev/cu.usbmodemXXXX`.
 
 ## What NOT to do
 

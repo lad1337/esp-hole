@@ -71,10 +71,18 @@ ports:
 	$(IDF_PYTHON_ENV_PATH)/bin/python -m serial.tools.list_ports -v
 
 ## --- ESP32-P4-Function-EV-Board (onboard IP101) ----------------------------
-## First build sets the target explicitly; harmless (and fast) on later runs.
+## `set-target` (which unconditionally fullcleans + regenerates sdkconfig,
+## even when the target is unchanged) only runs when sdkconfig is missing or
+## older than sdkconfig.defaults/sdkconfig.local — real Make prerequisite
+## tracking, not just an existence check, so editing sdkconfig.local still
+## triggers a regenerate (defaults are only applied to *missing* Kconfig
+## symbols, never re-applied over an already-set value any other way) while
+## an unrelated `make flash` stays a fast incremental ninja build.
 
-build:
+$(SDKCONFIG): sdkconfig.defaults $(SDKCONFIG_LOCAL)
 	$(IDF) set-target esp32p4
+
+build: $(SDKCONFIG)
 	$(IDF) build
 
 flash: build
@@ -86,8 +94,7 @@ monitor:
 flash-monitor: build
 	$(IDF) $(PORT_ARG) flash monitor
 
-menuconfig:
-	$(IDF) set-target esp32p4
+menuconfig: $(SDKCONFIG)
 	$(IDF) menuconfig
 
 clean:
@@ -97,10 +104,12 @@ fullclean:
 	$(IDF) fullclean
 
 ## --- Generator-node firmware (generator-node/) -----------------------------
-## First build sets the target explicitly; harmless (and fast) on later runs.
+## Same reasoning as above.
 
-build-gen:
+generator-node/$(SDKCONFIG_GEN): generator-node/sdkconfig.defaults $(SDKCONFIG_LOCAL_GEN)
 	$(IDFGEN) set-target esp32p4
+
+build-gen: generator-node/$(SDKCONFIG_GEN)
 	$(IDFGEN) build
 
 flash-gen: build-gen
@@ -112,8 +121,7 @@ monitor-gen:
 flash-monitor-gen: build-gen
 	$(IDFGEN) $(PORT_ARG) flash monitor
 
-menuconfig-gen:
-	$(IDFGEN) set-target esp32p4
+menuconfig-gen: generator-node/$(SDKCONFIG_GEN)
 	$(IDFGEN) menuconfig
 
 clean-gen:

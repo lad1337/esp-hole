@@ -424,6 +424,11 @@ static void eth_start(void)
 
 void app_main(void)
 {
+    /* Compile-time config, printed at boot to make it obvious that a
+     * `make flash` after an sdkconfig.local change actually took effect. */
+    ESP_LOGI(TAG, "config: manifest_url=%s stats_host=%s",
+             CONFIG_SINKHOLE_MANIFEST_URL, CONFIG_SINKHOLE_STATS_HOST);
+
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
